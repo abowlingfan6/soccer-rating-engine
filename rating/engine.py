@@ -10,7 +10,7 @@ from rating.formulas import (
 )
 
 # =========================================================
-# COLUMN MAPPING (CRITICAL FIX)
+# COLUMN MAP (fixes CSV mismatches)
 # =========================================================
 COLUMN_MAP = {
     "SOG": "SOnT",
@@ -31,20 +31,17 @@ COLUMN_MAP = {
     "SAV": "SAV"
 }
 
-
 # =========================================================
-# SAFE VALUE EXTRACTOR
+# SAFE VALUE FUNCTION
 # =========================================================
 def f(row, key):
 
-    # direct match
     if key in row:
         try:
             return float(row.get(key, 0))
         except:
             return 0.0
 
-    # mapped match
     if key in COLUMN_MAP:
         mapped = COLUMN_MAP[key]
         try:
@@ -56,35 +53,67 @@ def f(row, key):
 
 
 # =========================================================
-# RATING FUNCTION
+# MATCH IMPACT SYSTEM
+# =========================================================
+def match_impact(row, f):
+
+    impact = 0
+
+    # ---------- POSITIVE ----------
+    impact += 1.2 * f(row, "G")
+    impact += 0.6 * f(row, "A")
+    impact += 0.4 * f(row, "xG")
+    impact += 0.3 * f(row, "SCA")
+
+    impact += 0.25 * f(row, "Tk")
+    impact += 0.15 * f(row, "SAV")
+
+    impact += 0.1 * f(row, "P")
+    impact += 0.1 * f(row, "AP")
+
+    impact += 0.2 * f(row, "C")
+
+    # ---------- NEGATIVE ----------
+    impact -= 1.5 * f(row, "YC")
+    impact -= 4.0 * f(row, "RC")   # MASSIVE IMPACT
+    impact -= 0.3 * f(row, "FC")
+    impact -= 0.2 * f(row, "O")
+
+    return impact
+
+
+# =========================================================
+# MAIN RATING FUNCTION
 # =========================================================
 def calculate_rating(row):
 
     pos = str(row.get("Pos.", row.get("Pos", "UNKNOWN"))).strip().upper()
 
+    # compute base impact
+    impact = match_impact(row, f)
+
+    # position weighting
     if pos == "DF":
-        rating = defender_rating(row, lambda k: f(row, k))
+        rating = 6 + impact * 0.9
 
     elif pos == "MF":
-        rating = midfielder_rating(row, lambda k: f(row, k))
+        rating = 6 + impact * 1.0
 
     elif pos == "FW":
-        rating = forward_rating(row, lambda k: f(row, k))
+        rating = 6 + impact * 1.1
 
     elif pos == "GK":
-        rating = gk_rating(row, lambda k: f(row, k))
+        rating = 6 + impact * 0.95
 
     else:
-        rating = (
-            6
-            + 0.5 * f(row, "G")
-            + 0.3 * f(row, "A")
-            + 0.2 * f(row, "xG")
-            + 0.1 * f(row, "SCA")
-        )
+        rating = 6 + impact
 
-    # normalization (stability layer)
-    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.30)
+    # ================= RED CARD CAP =================
+    if f(row, "RC") > 0:
+        rating = min(rating, 3.0)
+
+    # ================= NORMALIZATION =================
+    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.25)
 
     return max(0, min(10, round(rating, 2)))
 
@@ -113,28 +142,22 @@ def run_match(match_name):
 
     df = df.fillna(0)
 
-    # =====================================================
-    # DEBUG (optional - remove later)
-    # =====================================================
-    # print(df.columns)
-    # print(df.iloc[0].to_dict())
-
     df["rating"] = df.apply(calculate_rating, axis=1)
 
     os.makedirs("data", exist_ok=True)
 
-    out_file = f"data/{match_name}_ratings.csv"
-    df.to_csv(out_file, index=False)
+    output_file = f"data/{match_name}_ratings.csv"
+    df.to_csv(output_file, index=False)
 
     print("\n=== TOP PLAYERS ===")
     print(df[["player", "rating"]].head(20))
 
-    print("\nSaved:", out_file)
+    print("\nSaved:", output_file)
     print("DONE")
 
 
 # =========================================================
-# CLI ENTRY POINT
+# CLI ENTRY
 # =========================================================
 if __name__ == "__main__":
 
