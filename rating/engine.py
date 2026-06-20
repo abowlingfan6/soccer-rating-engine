@@ -3,156 +3,137 @@ import os
 import pandas as pd
 import numpy as np
 
-# =========================================================
-# OPTIONAL IMPORTS
-# =========================================================
-from rating.formulas import (
-    defender_rating,
-    midfielder_rating,
-    forward_rating,
-    gk_rating
-)
 
 # =========================================================
-# COLUMN MAP
+# SAFE LOAD
 # =========================================================
-COLUMN_MAP = {
-    "SOG": "SOnT",
-    "S": "SIB",
-    "Tk": "Tk",
-    "AP": "AP",
-    "P": "P",
-    "C": "C",
-    "G": "G",
-    "A": "A",
-    "xG": "xG",
-    "xA": "xA",
-    "FC": "FC",
-    "YC": "YC",
-    "RC": "RC",
-    "SCA": "SCA",
-    "O": "O",
-    "SAV": "SAV",
-    "MP": "MP"
-}
-
-# =========================================================
-# SAFE FETCH
-# =========================================================
-def f(row, key):
-    if key in row:
-        try:
-            return float(row.get(key, 0))
-        except:
-            return 0.0
-
-    if key in COLUMN_MAP:
-        mapped = COLUMN_MAP[key]
-        try:
-            return float(row.get(mapped, 0))
-        except:
-            return 0.0
-
-    return 0.0
+def safe(df, col):
+    if col in df.columns:
+        return pd.to_numeric(df[col], errors="coerce").fillna(0)
+    return 0
 
 
 # =========================================================
 # PER 90
 # =========================================================
-def per90(value, minutes):
-    if minutes <= 0:
-        return 0.0
-    return (value / minutes) * 90
+def per90(value, mp):
+    if mp <= 0:
+        return 0
+    return (value / mp) * 90
 
 
 # =========================================================
-# ROLE
+# ROLE CLASSIFIER
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
 
-    if pos == "DF":
+    if pos == "GK":
+        return "GK"
+    elif pos == "DF":
         return "DEF"
     elif pos == "MF":
         return "MID"
     elif pos == "FW":
         return "FWD"
-    elif pos == "GK":
-        return "GK"
-
     return "MID"
 
 
 # =========================================================
-# MATCH IMPACT (UNCHANGED CORE LOGIC)
-# =========================================================
-def match_impact(row, f):
-
-    minutes = f(row, "MP")
-    if minutes <= 0:
-        minutes = 90
-
-    impact = 0
-
-    # OFFENSE
-    impact += 1.3 * per90(f(row, "G"), minutes)
-    impact += 0.7 * per90(f(row, "A"), minutes)
-    impact += 0.5 * per90(f(row, "xG"), minutes)
-    impact += 0.4 * per90(f(row, "SCA"), minutes)
-
-    # BUILDUP
-    impact += 0.25 * per90(f(row, "AP"), minutes)
-    impact += 0.2 * per90(f(row, "C"), minutes)
-
-    # DEFENSE
-    impact += 0.3 * per90(f(row, "Tk"), minutes)
-
-    # NEGATIVE EVENTS
-    impact -= 0.3 * per90(f(row, "FC"), minutes)
-    impact -= 0.25 * per90(f(row, "O"), minutes)
-
-    # DISCIPLINE
-    impact -= 1.8 * per90(f(row, "YC"), minutes)
-    impact -= 2.5 * f(row, "RC")
-
-    return impact
-
-
-# =========================================================
-# SOFASCORE / OPTA DISTRIBUTION MODEL
+# CORE RATING MODEL
 # =========================================================
 def calculate_rating(row):
 
-    role = get_role(row.get("Pos.", row.get("Pos", "UNKNOWN")))
+    mp = float(row.get("MP", 90))
+    if mp <= 0:
+        mp = 90
 
-    impact = match_impact(row, f)
+    role = get_role(row.get("Pos.", row.get("Pos", "MID")))
 
-    # ROLE BASELINE
-    if role == "DEF":
-        raw = 6 + impact * 0.85
+    # ---------------- PER 90 STATS ----------------
+    g = per90(safe(row, "G"), mp)
+    a = per90(safe(row, "A"), mp)
+    sonT = per90(safe(row, "SOnT"), mp)
+    soffT = per90(safe(row, "SOffT"), mp)
+    bs = per90(safe(row, "BS"), mp)
+
+    passes = per90(safe(row, "P"), mp)
+    crosses = per90(safe(row, "C"), mp)
+
+    tackles = per90(safe(row, "Tk"), mp)
+    intercept = per90(safe(row, "INT"), mp)
+    forward_won = per90(safe(row, "FW"), mp)
+    possession_won = per90(safe(row, "PW"), mp)
+
+    fouls_committed = per90(safe(row, "FC"), mp)
+    offsides = per90(safe(row, "O"), mp)
+
+    yc = safe(row, "YC")
+    rc = safe(row, "RC")
+
+    gc = per90(safe(row, "GC"), mp)
+
+    sav = per90(safe(row, "SAV"), mp)
+    psav = per90(safe(row, "PSAV"), mp)
+
+    # =====================================================
+    # BASE IMPACT SCORE
+    # =====================================================
+    impact = 0
+
+    # ATTACK
+    impact += 1.4 * g
+    impact += 0.8 * a
+    impact += 0.4 * sonT
+    impact += 0.2 * bs
+    impact -= 0.25 * soffT
+
+    # PROGRESSION
+    impact += 0.2 * passes
+    impact += 0.15 * crosses
+
+    # DEFENSE
+    impact += 0.3 * tackles
+    impact += 0.25 * intercept
+    impact += 0.2 * possession_won
+    impact += 0.15 * forward_won
+
+    # NEGATIVE EVENTS
+    impact -= 0.25 * fouls_committed
+    impact -= 0.15 * offsides
+
+    # DISCIPLINE
+    impact -= 1.2 * yc
+    impact -= 3.5 * rc
+
+    # =====================================================
+    # ROLE SCALING
+    # =====================================================
+    if role == "GK":
+        impact += 1.2 * sav
+        impact += 1.0 * psav
+        impact -= 0.8 * gc
+
+    elif role == "DEF":
+        impact *= 0.95
+
     elif role == "MID":
-        raw = 6 + impact * 1.00
+        impact *= 1.0
+
     elif role == "FWD":
-        raw = 6 + impact * 1.15
-    elif role == "GK":
-        raw = 6 + impact * 0.90
-    else:
-        raw = 6 + impact
-
-    # RED CARD SOFT PENALTY (NO HARD CAPPING)
-    if f(row, "RC") > 0:
-        minutes = f(row, "MP")
-        raw -= 1.5 * max(0.3, minutes / 90)
+        impact *= 1.1
 
     # =====================================================
-    # SOFASCORE DISTRIBUTION TRANSFORM
+    # BASE RATING
     # =====================================================
+    rating = 6 + impact
 
-    centered = raw - 6
-    squashed = np.tanh(centered / 2.2)
-    rating = 6 + (squashed * 2.4)
+    # =====================================================
+    # SOFASCORE DISTRIBUTION CLAMP
+    # =====================================================
+    rating = 6 + np.tanh((rating - 6) / 2.0) * 2.3
 
-    # FINAL BOUNDS (REALISTIC OPTA RANGE)
+    # FINAL LIMITS
     rating = max(3.0, min(9.8, rating))
 
     return round(rating, 2)
@@ -182,48 +163,24 @@ def run_match(match_name):
 
     df = df.fillna(0)
 
-    # =====================================================
-    # ENSURE MP EXISTS
-    # =====================================================
+    # ensure MP exists
     if "MP" not in df.columns:
         df["MP"] = 90
 
-    df["MP"] = df["MP"].fillna(90)
-    df["MP"] = df["MP"].clip(lower=1)
-
-    # =====================================================
-    # RATING
-    # =====================================================
     df["rating"] = df.apply(calculate_rating, axis=1)
 
-    # =====================================================
-    # SAVE OUTPUT
-    # =====================================================
+    df = df.sort_values("rating", ascending=False)
+
     os.makedirs("data", exist_ok=True)
+    df.to_csv(f"data/{match_name}_ratings.csv", index=False)
 
-    output_file = f"data/{match_name}_ratings.csv"
-    df.to_csv(output_file, index=False)
-
-    print("\n=== TOP PLAYERS ===")
-    print(df[["player", "rating"]].sort_values("rating", ascending=False).head(20))
-
-    print("\nSaved:", output_file)
-    print("DONE")
+    print("\nTOP PLAYERS")
+    print(df[["player", "Pos.", "rating"]].head(20))
 
 
 # =========================================================
-# ENTRY
+# CLI
 # =========================================================
 if __name__ == "__main__":
-
-    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
-    run_match(match_name)
-
-
-# =========================================================
-# ENTRY
-# =========================================================
-if __name__ == "__main__":
-
-    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
+    match_name = sys.argv[1] if len(sys.argv) > 1 else "match"
     run_match(match_name)
