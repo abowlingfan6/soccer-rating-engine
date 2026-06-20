@@ -172,7 +172,7 @@ def calculate_rating(row):
 
     rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.3)
 
-return round(min(max(rating, 0), 10), 2)
+    return round(min(max(rating, 0), 10), 2)
 
 # =========================================================
 # APPLY MODEL
