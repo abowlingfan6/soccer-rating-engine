@@ -2,7 +2,7 @@ import numpy as np
 
 
 # =========================================================
-# SAFE CONVERSIONS
+# SAFE GET
 # =========================================================
 def f(row, key):
     try:
@@ -11,16 +11,16 @@ def f(row, key):
         return 0.0
 
 
-def per90(value, mp):
+def per90(v, mp):
     if mp <= 0:
-        return 0.0
-    return (value / mp) * 90
+        return 0
+    return (v / mp) * 90
 
 
 # =========================================================
-# COMMON IMPACT BLOCKS
+# SHARED BLOCKS
 # =========================================================
-def attack_block(row, mp):
+def attack(row, mp):
     return (
         1.4 * per90(f(row, "G"), mp) +
         0.8 * per90(f(row, "A"), mp) +
@@ -29,82 +29,85 @@ def attack_block(row, mp):
     )
 
 
-def build_block(row, mp):
+def build(row, mp):
     return (
         0.25 * per90(f(row, "P"), mp) +
-        0.20 * per90(f(row, "C"), mp)
+        0.2 * per90(f(row, "C"), mp)
     )
 
 
-def defense_block(row, mp):
+def defense(row, mp):
     return (
-        0.30 * per90(f(row, "Tk"), mp) +
+        0.3 * per90(f(row, "Tk"), mp) +
         0.25 * per90(f(row, "INT"), mp) +
-        0.20 * per90(f(row, "PW"), mp) +
-        0.15 * per90(f(row, "FW"), mp)
+        0.2 * per90(f(row, "FW"), mp)
     )
 
 
-def negative_block(row, mp):
+def negative(row, mp):
     return (
         0.25 * per90(f(row, "FC"), mp) +
         0.15 * per90(f(row, "O"), mp)
     )
 
 
-def discipline_block(row, mp):
-    return (
-        1.2 * f(row, "YC") +
-        3.5 * f(row, "RC")
-    )
+def discipline(row):
+    return 1.2 * f(row, "YC") + 3.5 * f(row, "RC")
 
 
 # =========================================================
-# ROLE FORMULAS
+# ROLE MODELS
 # =========================================================
 def defender_rating(row, mp):
-    impact = 0
+    impact = (
+        attack(row, mp) * 0.5 +
+        build(row, mp) * 0.8 +
+        defense(row, mp) * 1.3 -
+        negative(row, mp) -
+        discipline(row)
+    )
 
-    impact += attack_block(row, mp) * 0.6
-    impact += build_block(row, mp) * 0.8
-    impact += defense_block(row, mp) * 1.2
-    impact -= negative_block(row, mp)
-    impact -= discipline_block(row, mp)
-
-    return 6 + impact
+    return _normalize(6 + impact)
 
 
 def midfielder_rating(row, mp):
-    impact = 0
+    impact = (
+        attack(row, mp) * 0.9 +
+        build(row, mp) * 1.2 +
+        defense(row, mp) * 1.0 -
+        negative(row, mp) -
+        discipline(row)
+    )
 
-    impact += attack_block(row, mp) * 0.9
-    impact += build_block(row, mp) * 1.2
-    impact += defense_block(row, mp) * 1.0
-    impact -= negative_block(row, mp)
-    impact -= discipline_block(row, mp)
-
-    return 6 + impact
+    return _normalize(6 + impact)
 
 
 def forward_rating(row, mp):
-    impact = 0
+    impact = (
+        attack(row, mp) * 1.4 +
+        build(row, mp) * 0.7 +
+        defense(row, mp) * 0.4 -
+        negative(row, mp) -
+        discipline(row)
+    )
 
-    impact += attack_block(row, mp) * 1.4
-    impact += build_block(row, mp) * 0.7
-    impact += defense_block(row, mp) * 0.4
-    impact -= negative_block(row, mp)
-    impact -= discipline_block(row, mp)
-
-    return 6 + impact
+    return _normalize(6 + impact)
 
 
 def gk_rating(row, mp):
-    impact = 0
+    impact = (
+        1.5 * per90(f(row, "SAV"), mp) +
+        1.2 * per90(f(row, "PSAV"), mp) -
+        0.8 * per90(f(row, "GC"), mp) -
+        discipline(row)
+    )
 
-    impact += 1.5 * per90(f(row, "SAV"), mp)
-    impact += 1.2 * per90(f(row, "PSAV"), mp)
-    impact -= 0.8 * per90(f(row, "GC"), mp)
+    return _normalize(6 + impact)
 
-    impact -= discipline_block(row, mp)
 
-    return 6 + impact
+# =========================================================
+# FINAL NORMALIZER (FIXES 10 SPAM)
+# =========================================================
+def _normalize(x):
+    x = 6 + np.tanh((x - 6) / 2.0) * 2.4
+    return max(3.0, min(9.7, round(x, 2)))
