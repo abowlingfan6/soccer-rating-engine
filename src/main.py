@@ -1,49 +1,64 @@
-# src/main.py
-
 import pandas as pd
+
 from src.models import defender_rating, midfielder_rating, forward_rating
+from src.config import DECIMALS
 
 
+# -----------------------------
+# CORE RATING ROUTER
+# -----------------------------
 def rate_player(row):
-    s = row.to_dict()
+    pos = str(row.get("Pos.", "")).strip().upper()
 
-    pos = s.get("Pos", "")
+    try:
+        if pos == "DF":
+            rating = defender_rating(row)
+        elif pos == "MF":
+            rating = midfielder_rating(row)
+        elif pos == "FW":
+            rating = forward_rating(row)
+        else:
+            rating = 6  # default baseline for unknown positions
 
-    if pos == "DF":
-        return defender_rating(s)
-    elif pos == "MF":
-        return midfielder_rating(s)
-    elif pos == "FW":
-        return forward_rating(s)
-    else:
+        return round(rating, DECIMALS)
+
+    except Exception as e:
+        # If something breaks in a row, don't crash entire dataset
+        print(f"Error processing player {row.get('player', 'UNKNOWN')}: {e}")
         return 6.0
 
 
-def run(file_path):
-    df = pd.read_csv(file_path)
+# -----------------------------
+# MAIN EXECUTION
+# -----------------------------
+def main():
 
-    # clean column names (VERY IMPORTANT for GitHub/Excel files)
-    df.columns = df.columns.str.strip()
+    # Load dataset
+    df = pd.read_csv("data/match.csv")
 
-    # fix common naming issue
-    if "Pos." in df.columns:
-        df = df.rename(columns={"Pos.": "Pos"})
+    # Ensure numeric safety (prevents string issues)
+    numeric_cols = df.columns.drop(["player", "Pos."])
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
 
+    # Apply rating system
     df["Rating"] = df.apply(rate_player, axis=1)
 
+    # Final formatting rule: 1 decimal place + cap safety
+    df["Rating"] = df["Rating"].clip(0, 10).round(1)
+
+    # Sort best to worst
     df = df.sort_values("Rating", ascending=False)
 
-    return df
+    # Save output
+    df.to_csv("data/output_ratings.csv", index=False)
+
+    # Print clean output
+    print("\nTOP PLAYER RATINGS\n")
+    print(df[["player", "Pos.", "Rating"]].to_string(index=False))
 
 
+# -----------------------------
+# ENTRY POINT
+# -----------------------------
 if __name__ == "__main__":
-    file_path = "data/mexico_vs_south_africa.csv"
-
-    result = run(file_path)
-
-    print("\nTOP PLAYERS:\n")
-    print(result[["player", "Pos", "Rating"]])
-
-    result.to_csv("output_ratings.csv", index=False)
-
-    print("\nSaved: output_ratings.csv")
+    main()
