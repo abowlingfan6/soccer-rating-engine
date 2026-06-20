@@ -1,6 +1,15 @@
 # Soccer Rating Engine
 
-This project generates player ratings from match CSV data using a position-based formula system.
+A modular player rating system that works across multiple soccer datasets.
 
-## Input
-Place match data in:
+## Features
+- Defender / Midfielder / Forward rating models
+- Works with any CSV dataset
+- Easily extendable weights
+- Per-match player evaluation
+
+## How to run
+
+```bash
+pip install -r requirements.txt
+python src/main.py
