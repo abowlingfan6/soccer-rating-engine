@@ -1,9 +1,10 @@
 import sys
 import os
 import pandas as pd
+import numpy as np
 
 # =========================================================
-# OPTIONAL IMPORTS (safe even if unused)
+# OPTIONAL IMPORTS
 # =========================================================
 from rating.formulas import (
     defender_rating,
@@ -13,7 +14,7 @@ from rating.formulas import (
 )
 
 # =========================================================
-# COLUMN SAFE MAP
+# SAFE COLUMN MAP
 # =========================================================
 COLUMN_MAP = {
     "SOG": "SOnT",
@@ -36,7 +37,7 @@ COLUMN_MAP = {
 }
 
 # =========================================================
-# SAFE FETCH FUNCTION
+# SAFE FETCH
 # =========================================================
 def f(row, key):
 
@@ -66,7 +67,7 @@ def per90(value, minutes):
 
 
 # =========================================================
-# ROLE CLASSIFICATION
+# ROLE
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
@@ -84,7 +85,7 @@ def get_role(pos):
 
 
 # =========================================================
-# IMPACT MODEL (SCOUTING CORE)
+# RAW IMPACT MODEL (NO NORMALIZATION HERE)
 # =========================================================
 def match_impact(row, f):
 
@@ -94,86 +95,43 @@ def match_impact(row, f):
 
     impact = 0
 
-    # OFFENSIVE OUTPUT
+    # ATTACK
     impact += 1.3 * per90(f(row, "G"), minutes)
     impact += 0.7 * per90(f(row, "A"), minutes)
     impact += 0.5 * per90(f(row, "xG"), minutes)
     impact += 0.4 * per90(f(row, "SCA"), minutes)
 
-    # PROGRESSION
+    # BUILDUP
     impact += 0.3 * per90(f(row, "AP"), minutes)
     impact += 0.25 * per90(f(row, "C"), minutes)
 
-    # DEFENSIVE WORK
+    # DEFENSE
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
     # NEGATIVE EVENTS
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # DISCIPLINE (soft here, handled later more precisely)
+    # DISCIPLINE
     impact -= 0.2 * f(row, "YC")
+
+    # RED CARD HARD PENALTY (realistic)
+    if f(row, "RC") > 0:
+        minutes_factor = f(row, "MP") / 90 if f(row, "MP") > 0 else 1
+        impact -= 4.0 * (1 + (1 - minutes_factor))
 
     return impact
 
 
 # =========================================================
-# FINAL RATING FUNCTION (FIXED DISTRIBUTION + RED CARD LOGIC)
+# PERCENTILE RATING (THIS FIXES 10s COMPLETELY)
 # =========================================================
-def calculate_rating(row):
-
-    role = get_role(row.get("Pos.", row.get("Pos", "UNKNOWN")))
-
-    impact = match_impact(row, f)
-
-    # ROLE WEIGHTING
-    if role == "DEF":
-        rating = 6 + impact * 0.85
-    elif role == "MID":
-        rating = 6 + impact * 1.00
-    elif role == "FWD":
-        rating = 6 + impact * 1.10
-    elif role == "GK":
-        rating = 6 + impact * 0.90
-    else:
-        rating = 6 + impact
-
-    # =====================================================
-    # RED CARD SYSTEM (FIXED - NO MORE IDENTICAL SCORES)
-    # =====================================================
-    rc = f(row, "RC")
-
-    if rc > 0:
-        minutes = f(row, "MP")
-        if minutes <= 0:
-            minutes = 90
-
-        # stronger + scaled penalty
-        # early red hurts more than late red
-        severity = (1 - (minutes / 90))
-        rating -= 5.0 * (0.5 + severity)
-
-    # =====================================================
-    # YELLOW CARD SYSTEM
-    # =====================================================
-    yc = f(row, "YC")
-    rating -= 0.35 * yc
-
-    # =====================================================
-    # DISTRIBUTION FIX (NO MORE 10 CLUSTERS)
-    # =====================================================
-    # gentle compression instead of hard cap
-    if rating > 9:
-        rating = 9 + (rating - 9) * 0.25
-
-    if rating < 4:
-        rating = 4 + (rating - 4) * 0.6
-
-    return max(0, min(10, round(rating, 2)))
+def percentile_rank(value, series):
+    return np.mean(series <= value)
 
 
 # =========================================================
-# RUN MATCH
+# MAIN ENGINE
 # =========================================================
 def run_match(match_name):
 
@@ -196,7 +154,37 @@ def run_match(match_name):
 
     df = df.fillna(0)
 
-    df["rating"] = df.apply(calculate_rating, axis=1)
+    # =====================================================
+    # RAW IMPACT FIRST
+    # =====================================================
+    df["raw"] = df.apply(match_impact, axis=1, f=f)
+
+    # =====================================================
+    # ROLE ADJUSTMENT (SLIGHT, BEFORE RANKING)
+    # =====================================================
+    def role_adjust(row):
+        role = get_role(row.get("Pos.", row.get("Pos", "UNKNOWN")))
+        if role == "DEF":
+            return row["raw"] * 0.95
+        if role == "FWD":
+            return row["raw"] * 1.05
+        if role == "GK":
+            return row["raw"] * 0.90
+        return row["raw"]
+
+    df["adj_raw"] = df.apply(role_adjust, axis=1)
+
+    # =====================================================
+    # PERCENTILE SCORING (KEY FIX)
+    # =====================================================
+    series = df["adj_raw"]
+
+    df["rating"] = df["adj_raw"].apply(lambda x: percentile_rank(x, series) * 10)
+
+    # =====================================================
+    # FINAL CLEANING
+    # =====================================================
+    df["rating"] = df["rating"].round(2)
 
     os.makedirs("data", exist_ok=True)
 
@@ -204,14 +192,14 @@ def run_match(match_name):
     df.to_csv(output_file, index=False)
 
     print("\n=== TOP PLAYERS ===")
-    print(df[["player", "rating"]].head(20))
+    print(df.sort_values("rating", ascending=False)[["player", "rating"]].head(20))
 
     print("\nSaved:", output_file)
     print("DONE")
 
 
 # =========================================================
-# ENTRY POINT
+# ENTRY
 # =========================================================
 if __name__ == "__main__":
 
