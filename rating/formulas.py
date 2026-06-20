@@ -2,7 +2,7 @@ import numpy as np
 
 
 # =========================================================
-# SAFE FETCH
+# SAFE GET
 # =========================================================
 def f(row, key):
     try:
@@ -12,11 +12,11 @@ def f(row, key):
 
 
 # =========================================================
-# PER 90
+# PER 90 NORMALIZATION
 # =========================================================
-def per90(value, mp):
-    mp = max(mp, 1)
-    return (value / mp) * 90
+def per90(val, mp):
+    mp = max(float(mp), 1)
+    return (val / mp) * 90
 
 
 # =========================================================
@@ -24,6 +24,7 @@ def per90(value, mp):
 # =========================================================
 def role(pos):
     pos = str(pos).upper()
+
     if "GK" in pos:
         return "GK"
     if "DF" in pos:
@@ -34,16 +35,16 @@ def role(pos):
 
 
 # =========================================================
-# IMPACT MODEL
+# CORE IMPACT MODEL
 # =========================================================
 def impact(row):
 
     mp = f(row, "MP")
 
     attack = (
-        1.5 * per90(f(row, "G"), mp) +
+        1.6 * per90(f(row, "G"), mp) +
         0.9 * per90(f(row, "A"), mp) +
-        0.4 * per90(f(row, "SOnT"), mp)
+        0.3 * per90(f(row, "SOnT"), mp)
     )
 
     build = (
@@ -53,40 +54,45 @@ def impact(row):
 
     defense = (
         0.35 * per90(f(row, "Tk"), mp) +
-        0.25 * per90(f(row, "INT"), mp) +
-        0.2 * per90(f(row, "FW"), mp)
+        0.25 * per90(f(row, "INT"), mp)
     )
 
-    mistakes = (
-        0.25 * per90(f(row, "FC"), mp) +
-        0.15 * per90(f(row, "O"), mp)
+    errors = (
+        0.3 * per90(f(row, "FC"), mp) +
+        0.2 * per90(f(row, "O"), mp)
     )
 
-    yc = -0.4 * f(row, "YC")
-    rc = -1.0 * f(row, "RC")   # your fixed rule
+    discipline = (
+        -0.4 * f(row, "YC") +
+        -1.0 * f(row, "RC")   # FIXED: red card = -1
+    )
 
-    return attack + build + defense - mistakes + yc + rc
+    return attack + build + defense - errors + discipline
 
 
 # =========================================================
-# FINAL RATING
+# FINAL RATING (DISTRIBUTION CONTROL)
 # =========================================================
 def rating(row):
 
-    r = role(row.get("Pos.", ""))
+    r = role(row.get("Pos", row.get("Pos.", "")))
 
     base = impact(row)
 
+    # role scaling
     if r == "DEF":
-        score = 6 + base * 1.0
+        score = 6 + base * 0.95
     elif r == "MID":
-        score = 6 + base * 1.1
+        score = 6 + base * 1.05
     elif r == "FWD":
-        score = 6 + base * 1.2
+        score = 6 + base * 1.15
     else:
         score = 6 + base * 0.9
 
-    # smooth distribution (prevents 10 spam)
-    score = 6 + (score - 6) * 0.65
+    # spread correction (THIS fixes “everyone same rating”)
+    score = 6 + (score - 6) * 0.6
 
-    return float(np.clip(score, 3.0, 9.5))
+    # squash extremes into realistic soccer range
+    score = 6 + np.tanh(score - 6) * 3.2
+
+    return float(np.clip(score, 3.5, 9.3))
