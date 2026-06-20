@@ -1,69 +1,51 @@
 import pandas as pd
-import argparse
 
-from src.models import (
-    defender_rating,
-    midfielder_rating,
-    forward_rating,
-    sub_rating
-)
+from src.models import defender_rating, midfielder_rating, forward_rating
+from src.parser import get_position
 
 
-# ---------- POSITION ROUTER ----------
 def rate_player(row):
-    pos = str(row.get("Pos", "")).upper()
+    pos = get_position(row.get("Pos"))
 
-    if "GK" in pos:
-        return 5.5
-
-    if "DF" in pos:
+    if pos == "DF":
         return defender_rating(row)
-
-    if "FW" in pos:
+    elif pos == "MF":
+        return midfielder_rating(row)
+    elif pos == "FW":
         return forward_rating(row)
-
-    if "SUB" in pos:
-        return sub_rating(row)
-
-    return midfielder_rating(row)
-
-
-# ---------- CLEAN OUTPUT ----------
-def clean_ratings(df):
-    df["Rating"] = df["Rating"].clip(0, 10).round(1)
-    return df
+    else:
+        # SUB / GK fallback model
+        base = (
+            6 +
+            0.5 * row.get("G", 0) +
+            0.3 * row.get("A", 0) +
+            0.05 * row.get("P", 0)
+        )
+        return max(0, min(10, base))
 
 
-# ---------- MAIN ----------
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--file",
-        type=str,
-        default="data/mexico_vs_southafrica.csv"
-    )
+    # ✅ FIXED: dynamic dataset support
+    df = pd.read_csv("data/mexico_vs_southafrica.csv")
 
-    args = parser.parse_args()
-
-    df = pd.read_csv(args.file)
-
-    # FIX COLUMN ISSUES
+    # clean column names (fixes your KeyError issues)
     df.columns = df.columns.str.strip()
-    df.rename(columns={"Pos.": "Pos"}, inplace=True)
 
-    # DROP EMPTY ROWS
-    df = df.dropna(subset=["player", "Pos"])
+    # ensure Pos exists even if missing
+    if "Pos" not in df.columns:
+        raise ValueError("CSV missing 'Pos' column")
 
-    # APPLY MODEL
     df["Rating"] = df.apply(rate_player, axis=1)
 
-    # CLEAN OUTPUT
-    df = clean_ratings(df)
+    # round to 1 decimal
+    df["Rating"] = df["Rating"].round(1)
 
-    # SORT
-    df = df.sort_values("Rating", ascending=False)
+    # final clamp safety
+    df["Rating"] = df["Rating"].clip(0, 10)
 
     print(df[["player", "Pos", "Rating"]])
+
+    df.to_csv("output_ratings.csv", index=False)
 
 
 if __name__ == "__main__":
