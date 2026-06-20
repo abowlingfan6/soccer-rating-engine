@@ -2,9 +2,6 @@ import sys
 import os
 import pandas as pd
 
-# =========================================================
-# OPTIONAL IMPORTS (kept for compatibility)
-# =========================================================
 from rating.formulas import (
     defender_rating,
     midfielder_rating,
@@ -39,7 +36,6 @@ COLUMN_MAP = {
 # SAFE FETCH
 # =========================================================
 def f(row, key):
-
     if key in row:
         try:
             return float(row.get(key, 0))
@@ -57,7 +53,7 @@ def f(row, key):
 
 
 # =========================================================
-# PER 90 NORMALIZATION
+# PER 90
 # =========================================================
 def per90(value, minutes):
     if minutes <= 0:
@@ -66,7 +62,7 @@ def per90(value, minutes):
 
 
 # =========================================================
-# ROLE CLASSIFIER
+# ROLE
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
@@ -84,7 +80,7 @@ def get_role(pos):
 
 
 # =========================================================
-# MATCH IMPACT MODEL
+# MATCH IMPACT (FIXED RED CARD HANDLING)
 # =========================================================
 def match_impact(row, f):
 
@@ -94,44 +90,42 @@ def match_impact(row, f):
 
     impact = 0
 
-    # ================= OFFENSIVE =================
+    # ================= OFFENSE =================
     impact += 1.3 * per90(f(row, "G"), minutes)
     impact += 0.7 * per90(f(row, "A"), minutes)
     impact += 0.5 * per90(f(row, "xG"), minutes)
     impact += 0.4 * per90(f(row, "SCA"), minutes)
 
-    # ================= BUILDUP =================
+    # ================= BUILD =================
     impact += 0.25 * per90(f(row, "AP"), minutes)
     impact += 0.2 * per90(f(row, "C"), minutes)
 
-    # ================= DEFENSIVE =================
+    # ================= DEFENSE =================
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
-    # ================= NEGATIVE EVENTS =================
+    # ================= NEGATIVE =================
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # ================= DISCIPLINE =================
+    # ================= DISCIPLINE (FIXED) =================
     impact -= 1.8 * per90(f(row, "YC"), minutes)
-    impact -= 5.0 * per90(f(row, "RC"), minutes)
+
+    # 🚨 FIX: red card is NOT per90 anymore
+    impact -= 2.5 * f(row, "RC")
 
     return impact
 
 
 # =========================================================
-# FINAL RATING FUNCTION
+# RATING FUNCTION
 # =========================================================
 def calculate_rating(row):
 
     role = get_role(row.get("Pos.", row.get("Pos", "UNKNOWN")))
 
-    minutes = f(row, "MP")
-    if minutes <= 0:
-        minutes = 90
-
     impact = match_impact(row, f)
 
-    # ================= ROLE WEIGHTING =================
+    # ================= ROLE WEIGHT =================
     if role == "DEF":
         rating = 6 + impact * 0.85
     elif role == "MID":
@@ -143,9 +137,14 @@ def calculate_rating(row):
     else:
         rating = 6 + impact
 
-    # ================= RED CARD HARD CAP =================
+    # ================= FIXED RED CARD PENALTY =================
     if f(row, "RC") > 0:
-        rating = min(rating, 2.5)
+
+        minutes = f(row, "MP")
+        minutes_factor = max(0.25, minutes / 90)
+
+        # realistic punishment instead of hard cap
+        rating -= 1.8 * minutes_factor
 
     # ================= STABILITY NORMALIZATION =================
     rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.15)
@@ -168,9 +167,6 @@ def run_match(match_name):
         print("No data found")
         return
 
-    # =====================================================
-    # MERGE
-    # =====================================================
     if stats.empty:
         df = events.copy()
     elif events.empty:
@@ -181,12 +177,10 @@ def run_match(match_name):
     df = df.fillna(0)
 
     # =====================================================
-    # FIX MP (SOURCE OF TRUTH = EVENTS)
+    # ENSURE MP EXISTS
     # =====================================================
-    if "MP" in events.columns:
-        mp_map = events[["player", "MP"]].drop_duplicates()
-        df = df.drop(columns=["MP"], errors="ignore")
-        df = df.merge(mp_map, on="player", how="left")
+    if "MP" not in df.columns:
+        df["MP"] = 90
 
     df["MP"] = df["MP"].fillna(90)
     df["MP"] = df["MP"].clip(lower=1)
