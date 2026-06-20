@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import numpy as np
 from rating.formulas import rating as calc_rating
 
 
@@ -29,8 +28,8 @@ def run(match_name):
 
     df["rating"] = df.apply(calc_rating, axis=1)
 
-    # FINAL SAFETY CLAMP (THIS FIXES YOUR HIGH RATINGS)
-    df["rating"] = df["rating"].clip(3.5, 8.8)
+    # ===== FINAL NORMALIZATION (prevents extreme outliers) =====
+    df["rating"] = df["rating"].clip(3.5, 9.3).round(1)
 
     out_path = f"data/{match_name}_ratings.csv"
     df.to_csv(out_path, index=False)
