@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 
+
 # =========================================================
 # LOAD DATA
 # =========================================================
@@ -20,11 +21,10 @@ def load_data(match_name):
 
 
 # =========================================================
-# ROLE CLASSIFIER
+# ROLE
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
-
     if "GK" in pos:
         return "GK"
     if "DF" in pos:
@@ -35,7 +35,7 @@ def get_role(pos):
 
 
 # =========================================================
-# PER 90 NORMALIZER
+# PER 90
 # =========================================================
 def per90(val, mp):
     if mp <= 0:
@@ -44,7 +44,7 @@ def per90(val, mp):
 
 
 # =========================================================
-# CORE RATING MODEL
+# MAIN MODEL
 # =========================================================
 def compute_rating(row):
 
@@ -54,7 +54,7 @@ def compute_rating(row):
     role = get_role(row.get("Pos.", ""))
 
     # =========================
-    # OFFENSIVE
+    # ATTACK
     # =========================
     g = per90(row.get("G", 0), mp)
     a = per90(row.get("A", 0), mp)
@@ -63,15 +63,15 @@ def compute_rating(row):
     bs = per90(row.get("BS", 0), mp)
 
     attack = (
-        1.5 * g +
-        1.0 * a +
+        1.6 * g +
+        1.1 * a +
         0.2 * sot +
         0.1 * soff +
         0.2 * bs
     )
 
     # =========================
-    # MIDFIELD / CONTROL
+    # MIDFIELD
     # =========================
     p = per90(row.get("P", 0), mp)
     c = per90(row.get("C", 0), mp)
@@ -82,8 +82,8 @@ def compute_rating(row):
     midfield = (
         0.03 * p +
         0.10 * c +
-        0.20 * tk +
-        0.18 * inte +
+        0.22 * tk +
+        0.20 * inte +
         0.12 * fw
     )
 
@@ -114,10 +114,10 @@ def compute_rating(row):
     yc = row.get("YC", 0)
     rc = row.get("RC", 0)
 
-    discipline = (-0.4 * yc) + (-1.0 * rc)   # EXACT red card = -1 impact unit
+    discipline = (-0.35 * yc) + (-1.0 * rc)
 
     # =========================
-    # BASE IMPACT BY ROLE
+    # BASE IMPACT
     # =========================
     if role == "GK":
         impact = gk
@@ -128,36 +128,49 @@ def compute_rating(row):
     else:
         impact = attack + midfield * 0.15
 
-    # =========================
-    # MINUTES STABILITY (IMPORTANT)
-    # prevents tiny-minutes inflation
-    # =========================
-    minutes_factor = np.tanh(mp / 70)
+    # =========================================================
+    # 🔥 FIX: MINUTES CREDIBILITY SYSTEM (CORE FIX)
+    # =========================================================
 
-    impact = (impact * minutes_factor) + discipline
+    # stronger saturation (fixes sub inflation)
+    minutes_factor = 1 - np.exp(-mp / 60)
+
+    # credibility curve (prevents 20-min 9.7 ratings)
+    if mp < 20:
+        credibility = 0.40
+    elif mp < 30:
+        credibility = 0.50 + (mp - 20) / 10 * 0.15
+    elif mp < 45:
+        credibility = 0.65 + (mp - 30) / 15 * 0.20
+    elif mp < 60:
+        credibility = 0.85
+    else:
+        credibility = 0.90 + min((mp - 60) / 30, 0.10)
+
+    impact = (impact * minutes_factor * credibility) + discipline
 
     # =========================
-    # FINAL SCALING (FIXES YOUR "MAX 7" PROBLEM)
+    # FINAL SCALING (BALANCED DISTRIBUTION)
     # =========================
-    rating = 6 + impact * 2.8   # stronger spread
+    rating = 6 + impact * 2.6
 
-    # soft stabilization (NOT compression trap)
-    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.08)
+    # light smoothing ONLY (no over-compression)
+    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.09)
 
-    # boost standout performances
+    # rare standout boost
     if impact > 1.5:
-        rating += 0.35
+        rating += 0.30
     if impact > 2.5:
-        rating += 0.60
+        rating += 0.55
 
-    # final realistic bounds
-    rating = max(3.5, min(9.7, rating))
+    # realistic bounds
+    rating = max(3.8, min(9.6, rating))
 
     return round(rating, 1)
 
 
 # =========================================================
-# RUN PIPELINE
+# RUN
 # =========================================================
 def run(match_name):
 
