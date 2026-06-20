@@ -8,14 +8,8 @@ def f(row, key):
         return 0.0
 
 
-def per90(val, mp):
-    mp = max(float(mp), 1)
-    return (val / mp) * 90
-
-
 def role(pos):
     pos = str(pos).upper()
-
     if "GK" in pos:
         return "GK"
     if "DF" in pos:
@@ -25,41 +19,47 @@ def role(pos):
     return "MID"
 
 
+# ---------------- SAFE per90 (FIXED) ----------------
+def per90(val, mp):
+    mp = float(mp)
+
+    if mp <= 0:
+        return 0
+
+    # 🚨 KEY FIX: prevents tiny minutes from exploding
+    scale = min(mp / 90, 1.0)
+
+    return val * scale
+
+
 def impact(row):
 
     mp = f(row, "MP")
 
-    # ---------------- ATTACK (more selective now) ----------------
     attack = (
         1.4 * per90(f(row, "G"), mp) +
         0.9 * per90(f(row, "A"), mp) +
-        0.25 * per90(f(row, "SOnT"), mp) +
-        0.15 * per90(f(row, "BS"), mp)
+        0.2 * per90(f(row, "SOnT"), mp)
     )
 
-    # ---------------- BUILDUP (lower weight to reduce inflation) ----------------
     build = (
         0.10 * per90(f(row, "P"), mp) +
-        0.08 * per90(f(row, "C"), mp) +
-        0.05 * per90(f(row, "FW"), mp)
+        0.08 * per90(f(row, "C"), mp)
     )
 
-    # ---------------- DEFENSE (slightly stronger separation) ----------------
     defense = (
         0.25 * per90(f(row, "Tk"), mp) +
         0.25 * per90(f(row, "INT"), mp)
     )
 
-    # ---------------- NEGATIVE EVENTS (VERY IMPORTANT FIX) ----------------
     mistakes = (
         0.35 * per90(f(row, "FC"), mp) +
         0.30 * per90(f(row, "O"), mp)
     )
 
-    # ---------------- DISCIPLINE (your rule kept) ----------------
     discipline = (
         -0.6 * f(row, "YC") +
-        -1.0 * f(row, "RC")   # hard -1
+        -1.0 * f(row, "RC")
     )
 
     return attack + build + defense - mistakes + discipline
@@ -72,19 +72,16 @@ def rating(row):
 
     base = impact(row)
 
-    # ---------------- KEY FIX: spread amplifier ----------------
-    time_factor = np.sqrt(min(mp / 90, 1.0))
+    # ---------------- MINUTES REALISM PENALTY (CRITICAL FIX) ----------------
+    # prevents subs from competing with full 90s
+    minutes_factor = (mp / 90) ** 1.3
 
-    score = 6 + base * 1.2 * time_factor
+    score = 6 + base * minutes_factor * 1.6
 
-    # ---------------- ROLE DIFFERENTIATION (slightly stronger now) ----------------
+    # role bias (small)
     if r == "DEF":
-        score -= 0.15
+        score -= 0.1
     elif r == "FWD":
-        score += 0.20
-
-    # ---------------- FINAL SPREAD CONTROL (THIS FIXES 9.3 CLUSTERING) ----------------
-    # pushes average toward 6.5 instead of everyone drifting high
-    score = 6.5 + (score - 6.5) * 0.75
+        score += 0.15
 
     return float(score)
