@@ -1,7 +1,11 @@
 import sys
 import os
 import pandas as pd
+import numpy as np
 
+# =========================================================
+# OPTIONAL IMPORTS
+# =========================================================
 from rating.formulas import (
     defender_rating,
     midfielder_rating,
@@ -80,7 +84,7 @@ def get_role(pos):
 
 
 # =========================================================
-# MATCH IMPACT (FIXED RED CARD HANDLING)
+# MATCH IMPACT (UNCHANGED CORE LOGIC)
 # =========================================================
 def match_impact(row, f):
 
@@ -90,34 +94,32 @@ def match_impact(row, f):
 
     impact = 0
 
-    # ================= OFFENSE =================
+    # OFFENSE
     impact += 1.3 * per90(f(row, "G"), minutes)
     impact += 0.7 * per90(f(row, "A"), minutes)
     impact += 0.5 * per90(f(row, "xG"), minutes)
     impact += 0.4 * per90(f(row, "SCA"), minutes)
 
-    # ================= BUILD =================
+    # BUILDUP
     impact += 0.25 * per90(f(row, "AP"), minutes)
     impact += 0.2 * per90(f(row, "C"), minutes)
 
-    # ================= DEFENSE =================
+    # DEFENSE
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
-    # ================= NEGATIVE =================
+    # NEGATIVE EVENTS
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # ================= DISCIPLINE (FIXED) =================
+    # DISCIPLINE
     impact -= 1.8 * per90(f(row, "YC"), minutes)
-
-    # 🚨 FIX: red card is NOT per90 anymore
     impact -= 2.5 * f(row, "RC")
 
     return impact
 
 
 # =========================================================
-# RATING FUNCTION
+# SOFASCORE / OPTA DISTRIBUTION MODEL
 # =========================================================
 def calculate_rating(row):
 
@@ -125,31 +127,35 @@ def calculate_rating(row):
 
     impact = match_impact(row, f)
 
-    # ================= ROLE WEIGHT =================
+    # ROLE BASELINE
     if role == "DEF":
-        rating = 6 + impact * 0.85
+        raw = 6 + impact * 0.85
     elif role == "MID":
-        rating = 6 + impact * 1.00
+        raw = 6 + impact * 1.00
     elif role == "FWD":
-        rating = 6 + impact * 1.15
+        raw = 6 + impact * 1.15
     elif role == "GK":
-        rating = 6 + impact * 0.90
+        raw = 6 + impact * 0.90
     else:
-        rating = 6 + impact
+        raw = 6 + impact
 
-    # ================= FIXED RED CARD PENALTY =================
+    # RED CARD SOFT PENALTY (NO HARD CAPPING)
     if f(row, "RC") > 0:
-
         minutes = f(row, "MP")
-        minutes_factor = max(0.25, minutes / 90)
+        raw -= 1.5 * max(0.3, minutes / 90)
 
-        # realistic punishment instead of hard cap
-        rating -= 1.8 * minutes_factor
+    # =====================================================
+    # SOFASCORE DISTRIBUTION TRANSFORM
+    # =====================================================
 
-    # ================= STABILITY NORMALIZATION =================
-    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.15)
+    centered = raw - 6
+    squashed = np.tanh(centered / 2.2)
+    rating = 6 + (squashed * 2.4)
 
-    return max(0, min(10, round(rating, 2)))
+    # FINAL BOUNDS (REALISTIC OPTA RANGE)
+    rating = max(3.0, min(9.8, rating))
+
+    return round(rating, 2)
 
 
 # =========================================================
@@ -191,7 +197,7 @@ def run_match(match_name):
     df["rating"] = df.apply(calculate_rating, axis=1)
 
     # =====================================================
-    # SAVE
+    # SAVE OUTPUT
     # =====================================================
     os.makedirs("data", exist_ok=True)
 
@@ -203,6 +209,15 @@ def run_match(match_name):
 
     print("\nSaved:", output_file)
     print("DONE")
+
+
+# =========================================================
+# ENTRY
+# =========================================================
+if __name__ == "__main__":
+
+    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
+    run_match(match_name)
 
 
 # =========================================================
