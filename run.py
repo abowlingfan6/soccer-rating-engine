@@ -1,5 +1,6 @@
 import sys
 import os
+import glob
 import pandas as pd
 
 from rating.formulas import (
@@ -10,28 +11,48 @@ from rating.formulas import (
 )
 
 # =========================================================
-# LOAD MATCH FILE
+# AUTO FILE FINDER (FIXES YOUR ERROR)
+# =========================================================
+def find_file(match_name):
+    patterns = [
+        f"data/{match_name}.csv",
+        f"data/{match_name}_stats.csv",
+        f"data/{match_name}*.csv"
+    ]
+
+    for p in patterns:
+        matches = glob.glob(p)
+        if matches:
+            return matches[0]
+
+    return None
+
+
+# =========================================================
+# LOAD DATA
 # =========================================================
 def load_match(match_name):
-    file_path = f"data/{match_name}.csv"
+    file_path = find_file(match_name)
 
-    if not os.path.exists(file_path):
-        print(f"❌ File not found: {file_path}")
+    if file_path is None:
+        print(f"❌ No file found for: {match_name}")
+        print("👉 Make sure your CSV is inside /data folder")
         return None
+
+    print(f"✅ Using file: {file_path}")
 
     df = pd.read_csv(file_path)
     df = df.fillna(0)
 
-    # standardize column name
-    if "Pos." not in df.columns:
-        if "Pos" in df.columns:
-            df.rename(columns={"Pos": "Pos."}, inplace=True)
+    # standardize position column
+    if "Pos." not in df.columns and "Pos" in df.columns:
+        df.rename(columns={"Pos": "Pos."}, inplace=True)
 
     return df
 
 
 # =========================================================
-# ROLE MAP
+# ROLE CLASSIFIER
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
@@ -47,9 +68,20 @@ def get_role(pos):
 
 
 # =========================================================
-# MAIN CALCULATION
+# SAFE VALUE
+# =========================================================
+def f(row, key):
+    try:
+        return float(row.get(key, 0))
+    except:
+        return 0.0
+
+
+# =========================================================
+# MAIN RATING
 # =========================================================
 def calculate(row):
+
     mp = float(row.get("MP", 90))
     if mp <= 0:
         mp = 90
@@ -67,7 +99,7 @@ def calculate(row):
 
 
 # =========================================================
-# RUN PIPELINE
+# RUN MATCH
 # =========================================================
 def run(match_name):
 
@@ -82,13 +114,13 @@ def run(match_name):
 
     os.makedirs("data", exist_ok=True)
 
-    output = f"data/{match_name}_ratings.csv"
-    df.to_csv(output, index=False)
+    output_file = f"data/{match_name}_ratings.csv"
+    df.to_csv(output_file, index=False)
 
     print("\n🏆 TOP PLAYERS")
     print(df[["player", "Pos.", "rating"]].head(20))
 
-    print("\nSaved:", output)
+    print("\n💾 Saved:", output_file)
 
 
 # =========================================================
