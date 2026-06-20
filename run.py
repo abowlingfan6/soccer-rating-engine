@@ -1,57 +1,67 @@
-import pandas as pd
 import os
-
-from rating.formulas import rating
+import pandas as pd
+import numpy as np
+from rating.formulas import rating as calc_rating
 
 
 # =========================================================
-# RUN ALL FILES
+# CLEAN COLUMN FIXER
 # =========================================================
-def run_all():
+def clean_columns(df):
+    df.columns = (
+        df.columns
+        .str.strip()
+        .str.replace(".", "", regex=False)
+    )
+    return df
 
-    files = [f for f in os.listdir("data") if f.endswith(".csv")]
 
-    if not files:
-        print("❌ No CSV files found in /data")
+# =========================================================
+# MAIN PIPELINE
+# =========================================================
+def run(match_name):
+
+    file_path = f"data/{match_name}.csv"
+
+    if not os.path.exists(file_path):
+        print(f"❌ File not found: {file_path}")
         return
 
-    for file in files:
+    print(f"=== Running {file_path} ===")
 
-        path = os.path.join("data", file)
-        print(f"\n=== Running {file} ===")
+    df = pd.read_csv(file_path)
+    df = clean_columns(df)
 
-        df = pd.read_csv(path)
-        df.columns = df.columns.str.strip()
+    # ensure player exists
+    if "player" not in df.columns:
+        print("❌ Missing 'player' column in dataset")
+        return
 
-        if "player" not in df.columns:
-            print(f"❌ Skipping {file}: missing player column")
-            continue
+    # fill missing values
+    df = df.fillna(0)
 
-        df["rating"] = df.apply(rating, axis=1)
+    # compute ratings
+    df["rating"] = df.apply(calc_rating, axis=1)
 
-        out = path.replace(".csv", "_ratings.csv")
-        df.to_csv(out, index=False)
+    # clamp final output (extra safety)
+    df["rating"] = df["rating"].clip(3, 9.5)
 
-        print("✅ Saved:", out)
+    # save output
+    out_path = f"data/{match_name}_ratings.csv"
+    df.to_csv(out_path, index=False)
 
-        print(df[["player", "Pos.", "rating"]].head(10))
-
-
-# =========================================================
-# ENTRY
-# =========================================================
-if __name__ == "__main__":
-    run_all()
-
+    # top players
     print("\n🏆 TOP PLAYERS")
-    print(df[["player", "Pos.", "rating"]].head(20))
+    print(df[["player", "rating"]].sort_values("rating", ascending=False).head(15))
 
-    print("\n💾 Saved:", output_file)
+    print(f"\n✅ Saved: {out_path}")
 
 
 # =========================================================
-# CLI
+# ENTRY POINT
 # =========================================================
 if __name__ == "__main__":
-    match_name = sys.argv[1] if len(sys.argv) > 1 else "match"
+    import sys
+
+    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
     run(match_name)
