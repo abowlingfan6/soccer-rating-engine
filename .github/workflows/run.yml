@@ -19,11 +19,11 @@ jobs:
       - name: Install dependencies
         run: pip install pandas numpy
 
-      - name: Run USA vs Paraguay
-        run: python rating_engine.py usa_para
+      - name: Run Mexico vs South Africa
+        run: rating_engine.py mexico_sa
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: ratings
-          path: data/usa_para_ratings.csv
+          path: data_mexico_sa_ratings.csv
