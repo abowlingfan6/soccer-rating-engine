@@ -3,7 +3,7 @@ import numpy as np
 
 
 # ----------------------------
-# POSITION DETECTION
+# CLEAN POSITION HANDLING
 # ----------------------------
 def get_position(pos):
     if pd.isna(pos):
@@ -24,96 +24,95 @@ def get_position(pos):
 
 
 # ----------------------------
-# PERCENTILE CONVERSION
+# PERCENTILE FUNCTION
 # ----------------------------
-def percentile_rank(series):
+def percentile(series):
     return series.rank(pct=True)
 
 
 # ----------------------------
-# ROLE WEIGHTS (SIMPLIFIED CORE)
+# BASE ROLE MODELS
+# (simple + stable, no inflation)
 # ----------------------------
-def base_attack_score(row):
+
+def fw_score(r):
     return (
-        row["G"] * 4 +
-        row["A"] * 3 +
-        row["SOnT"] * 1.5 +
-        row["BS"] * 1.2 -
-        row["SOffT"] * 0.5
+        r.get("G", 0) * 4 +
+        r.get("A", 0) * 3 +
+        r.get("SOnT", 0) * 1.5 +
+        r.get("BS", 0) * 1.2 -
+        r.get("SOffT", 0) * 0.5
     )
 
 
-def base_mid_score(row):
+def mf_score(r):
     return (
-        row["P"] * 0.2 +
-        row["C"] * 0.3 +
-        row["Tk"] * 0.8 +
-        row["INT"] * 0.8 +
-        row["FW"] * 0.5
+        r.get("P", 0) * 0.2 +
+        r.get("C", 0) * 0.3 +
+        r.get("Tk", 0) * 0.9 +
+        r.get("INT", 0) * 0.9 +
+        r.get("FW", 0) * 0.5 -
+        r.get("FC", 0) * 0.3
     )
 
 
-def base_def_score(row):
+def df_score(r):
     return (
-        row["Tk"] * 1.2 +
-        row["INT"] * 1.2 +
-        row["FW"] * 0.7 -
-        row["FC"] * 0.5
+        r.get("Tk", 0) * 1.2 +
+        r.get("INT", 0) * 1.2 +
+        r.get("FW", 0) * 0.7 -
+        r.get("FC", 0) * 0.6 -
+        r.get("RC", 0) * 2.0
     )
 
 
-def base_gk_score(row):
-    return row.get("SAV", 0) * 2 + row.get("PSAV", 0) * 3
-
-
-def base_sub_score(row):
+def gk_score(r):
     return (
-        row["G"] * 3 +
-        row["A"] * 2 +
-        row["C"] * 0.5 +
-        row["Tk"] * 0.5
+        r.get("SAV", 0) * 2 +
+        r.get("PSAV", 0) * 3
+    )
+
+
+def sub_score(r):
+    return (
+        r.get("G", 0) * 3 +
+        r.get("A", 0) * 2 +
+        r.get("C", 0) * 0.5 +
+        r.get("Tk", 0) * 0.5
     )
 
 
 # ----------------------------
-# MAIN RATING FUNCTION
+# MAIN RATING ENGINE
 # ----------------------------
 def rate_players(df):
 
+    df.columns = df.columns.str.strip()
+
     df["Pos"] = df["Pos"].apply(get_position)
 
-    # compute raw base scores
-    df["raw_attack"] = df.apply(base_attack_score, axis=1)
-    df["raw_mid"] = df.apply(base_mid_score, axis=1)
-    df["raw_def"] = df.apply(base_def_score, axis=1)
-    df["raw_gk"] = df.apply(base_gk_score, axis=1)
-    df["raw_sub"] = df.apply(base_sub_score, axis=1)
-
-    # pick role score
-    def choose(row):
-        if row["Pos"] == "FW":
-            return row["raw_attack"]
-        elif row["Pos"] == "MF":
-            return row["raw_mid"]
-        elif row["Pos"] == "DF":
-            return row["raw_def"]
-        elif row["Pos"] == "GK":
-            return row["raw_gk"]
-        else:
-            return row["raw_sub"]
-
-    df["raw_score"] = df.apply(choose, axis=1)
+    # raw scores
+    df["raw"] = df.apply(
+        lambda r:
+        fw_score(r) if r["Pos"] == "FW" else
+        mf_score(r) if r["Pos"] == "MF" else
+        df_score(r) if r["Pos"] == "DF" else
+        gk_score(r) if r["Pos"] == "GK" else
+        sub_score(r),
+        axis=1
+    )
 
     # ----------------------------
-    # PERCENTILE NORMALIZATION (KEY FIX)
+    # IMPORTANT FIX: CONTEXT SCALING
     # ----------------------------
-    df["pct"] = percentile_rank(df["raw_score"])
+    df["pct"] = percentile(df["raw"])
 
-    # convert to 0–10 football rating scale
-    df["Rating"] = 5 + (df["pct"] * 5)
+    # curved scaling (prevents automatic 10s)
+    df["Rating"] = 4.5 + (df["pct"] ** 1.6) * 4.8
 
-    # clamp + round
-    df["Rating"] = df["Rating"].clip(0, 10).round(1)
+    # final constraints
+    df["Rating"] = df["Rating"].clip(0, 9.5)
+    df["Rating"] = df["Rating"].round(1)
 
     return df
 
@@ -123,10 +122,7 @@ def rate_players(df):
 # ----------------------------
 def main():
 
-    # IMPORTANT: your actual file
     df = pd.read_csv("data/mexico_vs_southafrica.csv")
-
-    df.columns = df.columns.str.strip()
 
     df = rate_players(df)
 
