@@ -1,63 +1,87 @@
-# src/models.py
+import numpy as np
+from src.config import MAX_RATING, MINUTES_BASE
 
-def clamp_rating(x):
-    return round(max(0, min(10, x)), 1)
-
-
-# -----------------------
-# DEFENDERS
-# -----------------------
-def defender_rating(s):
-    rating = 6 + (
-        (1.25 * s.get("G", 0)) +
-        (0.5 * s.get("A", 0)) +
-        (0.15 * s.get("C", 0)) +
-        (0.4 * s.get("Tk", 0)) +
-        (0.4 * s.get("INT", 0)) +
-        (0.2 * s.get("FW", 0)) +
-        (0.075 * s.get("FC", 0)) +
-        (0.05 * s.get("O", 0)) -
-        (0.05 * s.get("YC", 0)) -
-        (1.0 * s.get("RC", 0)) +
-        (0.2 * s.get("PW", 0)) -
-        (0.3 * s.get("GC", 0))
-    )
-
-    return clamp_rating(rating)
+def normalize(value, minutes):
+    if minutes == 0:
+        return 0
+    return value * (MINUTES_BASE / minutes)
 
 
-# -----------------------
-# MIDFIELDERS
-# -----------------------
-def midfielder_rating(s):
-    rating = 6 + (
-        (1.25 * s.get("G", 0)) +
-        (0.5 * s.get("A", 0)) +
-        (0.1 * s.get("P", 0)) +
-        (0.15 * s.get("C", 0)) +
-        (0.4 * s.get("Tk", 0)) +
-        (0.4 * s.get("INT", 0)) +
-        (0.2 * s.get("FW", 0)) -
-        (0.05 * s.get("YC", 0)) -
-        (1.0 * s.get("RC", 0)) +
-        (0.075 * s.get("recoveries", 0))
-    )
-
-    return clamp_rating(rating)
+def clamp(value):
+    return max(0, min(MAX_RATING, value))
 
 
-# -----------------------
-# FORWARDS
-# -----------------------
-def forward_rating(s):
-    rating = 6 + (
-        (1.25 * s.get("G", 0)) +
-        (0.5 * s.get("A", 0)) +
-        (0.5 * s.get("SOnT", 0)) +
-        (0.4 * s.get("SOffT", 0)) +
-        (0.4 * s.get("BS", 0)) -
-        (0.2 * s.get("O", 0)) -
-        (0.05 * s.get("FC", 0))
-    )
+# -------------------------
+# DEFENDER
+# -------------------------
+def defender_rating(row):
+    mp = row["MP"]
 
-    return clamp_rating(rating)
+    rating = 6
+
+    rating += 1.25 * normalize(row["Tk"], mp)
+    rating += 0.5 * normalize(row["INT"], mp)
+    rating += 0.4 * normalize(row["GC"] - 0.5, mp)
+    rating += 0.5 * normalize(row["PW"], mp)
+
+    rating += 0.1 * normalize(row["C"], mp)
+    rating += 0.075 * normalize(row["P"], mp)
+
+    rating += 0.5 * normalize(row["FW"], mp)
+
+    rating -= 0.2 * normalize(row["YC"], mp)
+    rating -= 1.0 * normalize(row["RC"], mp)
+
+    rating -= 0.8 * normalize(row["SAV"], mp)
+
+    return clamp(rating)
+
+
+# -------------------------
+# MIDFIELDER
+# -------------------------
+def midfielder_rating(row):
+    mp = row["MP"]
+
+    rating = 6
+
+    rating += 1.25 * normalize(row["G"], mp)
+    rating += 0.5 * normalize(row["A"], mp)
+    rating += 0.4 * normalize(row["P"], mp)
+
+    rating += 0.4 * normalize(row["Tk"], mp)
+    rating += 0.4 * normalize(row["INT"], mp)
+
+    rating += 0.2 * normalize(row["FW"], mp)
+    rating += 0.075 * normalize(row["FC"], mp)
+
+    rating += 0.5 * normalize(row["C"], mp)
+
+    rating -= 0.2 * normalize(row["YC"], mp)
+    rating -= 1.0 * normalize(row["RC"], mp)
+
+    return clamp(rating)
+
+
+# -------------------------
+# FORWARD
+# -------------------------
+def forward_rating(row):
+    mp = row["MP"]
+
+    rating = 6
+
+    rating += 1.25 * normalize(row["G"], mp)
+    rating += 0.5 * normalize(row["A"], mp)
+
+    rating += 0.4 * normalize(row["SOnT"], mp)
+    rating += 0.2 * normalize(row["BS"], mp)
+
+    rating += 0.5 * normalize(row["FW"], mp)
+
+    rating -= 0.3 * normalize(row["FC"], mp)
+    rating -= 0.2 * normalize(row["O"], mp)
+
+    rating -= 1.0 * normalize(row["RC"], mp)
+
+    return clamp(rating)
