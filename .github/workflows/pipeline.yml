@@ -1,0 +1,43 @@
+name: Full Soccer Rating Pipeline
+
+on:
+  push:
+    paths:
+      - "data/**"
+      - "rating_engine.py"
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas numpy
+
+      - name: Detect matches and run engine
+        run: |
+          echo "=== SCANNING DATA FOLDER ==="
+
+          for stats_file in data/*_stats.csv
+          do
+            match_name=$(basename "$stats_file" _stats.csv)
+
+            echo "=== Running match: $match_name ==="
+
+            python rating_engine.py $match_name
+          done
+
+      - name: Upload all ratings
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-match-ratings
+          path: data/*_ratings.csv
