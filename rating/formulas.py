@@ -2,7 +2,7 @@ import numpy as np
 
 
 # =========================================================
-# SAFE GETTERS
+# SAFE GETTER
 # =========================================================
 def f(row, key):
     try:
@@ -11,39 +11,13 @@ def f(row, key):
         return 0.0
 
 
-def per90(v, mp):
+# =========================================================
+# PER 90 SCALING (ONLY NORMALIZATION USED)
+# =========================================================
+def per90(value, mp):
     if mp <= 0:
         return 0.0
-    return (v / mp) * 90
-
-
-# =========================================================
-# MATCH REALISM LAYER
-# =========================================================
-# This fixes inflation / makes games comparable
-
-def match_context(row):
-    mp = f(row, "MP")
-
-    total_actions = (
-        f(row, "P") +
-        f(row, "C") +
-        f(row, "Tk") +
-        f(row, "INT") +
-        f(row, "FW")
-    )
-
-    # possession proxy (pass involvement)
-    possession_proxy = f(row, "P") / max(mp, 1)
-
-    # defensive intensity proxy
-    defensive_load = (f(row, "Tk") + f(row, "INT")) / max(mp, 1)
-
-    return {
-        "tempo": np.tanh(total_actions / 80),          # 0–1
-        "possession": np.tanh(possession_proxy / 60),  # 0–1
-        "defense": np.tanh(defensive_load / 2.5)       # 0–1
-    }
+    return (value / mp) * 90
 
 
 # =========================================================
@@ -81,69 +55,52 @@ def negative(row, mp):
 
 
 # =========================================================
-# DISCIPLINE (OPTION A FIX)
+# DISCIPLINE (OPTION A ONLY)
 # =========================================================
 def discipline(row):
     return 0.8 * f(row, "YC") + 1.0 * f(row, "RC")
 
 
 # =========================================================
-# ROLE MODELS WITH REALISM LAYER
+# ROLE MODELS
 # =========================================================
 def defender_rating(row, mp):
-    ctx = match_context(row)
-
     impact = (
-        attack(row, mp) * 0.45 +
+        attack(row, mp) * 0.5 +
         build(row, mp) * 0.8 +
-        defense(row, mp) * 1.35 -
+        defense(row, mp) * 1.3 -
         negative(row, mp) -
         discipline(row)
     )
-
-    # realism adjustment (defenders benefit from high defensive games)
-    impact *= (0.85 + 0.3 * ctx["defense"])
 
     return _normalize(6 + impact)
 
 
 def midfielder_rating(row, mp):
-    ctx = match_context(row)
-
     impact = (
         attack(row, mp) * 0.9 +
-        build(row, mp) * 1.25 +
+        build(row, mp) * 1.2 +
         defense(row, mp) * 1.0 -
         negative(row, mp) -
         discipline(row)
     )
 
-    # midfielders benefit from tempo + possession control
-    impact *= (0.9 + 0.2 * ctx["tempo"] + 0.2 * ctx["possession"])
-
     return _normalize(6 + impact)
 
 
 def forward_rating(row, mp):
-    ctx = match_context(row)
-
     impact = (
-        attack(row, mp) * 1.45 +
-        build(row, mp) * 0.65 +
+        attack(row, mp) * 1.4 +
+        build(row, mp) * 0.7 +
         defense(row, mp) * 0.4 -
         negative(row, mp) -
         discipline(row)
     )
 
-    # forwards benefit from tempo (more chances in open games)
-    impact *= (0.9 + 0.25 * ctx["tempo"])
-
     return _normalize(6 + impact)
 
 
 def gk_rating(row, mp):
-    ctx = match_context(row)
-
     impact = (
         1.5 * per90(f(row, "SAV"), mp) +
         1.2 * per90(f(row, "PSAV"), mp) -
@@ -151,15 +108,12 @@ def gk_rating(row, mp):
         discipline(row)
     )
 
-    # goalkeepers are affected by defensive load
-    impact *= (0.9 + 0.3 * ctx["defense"])
-
     return _normalize(6 + impact)
 
 
 # =========================================================
-# FINAL NORMALIZER (PREVENTS 10s / OUTLIERS)
+# STABLE NORMALIZER (NO 10 SPAM)
 # =========================================================
 def _normalize(x):
-    x = 6 + np.tanh((x - 6) / 2.2) * 2.3
-    return max(3.2, min(9.6, round(x, 2)))
+    x = 6 + np.tanh((x - 6) / 2.0) * 2.2
+    return max(3.0, min(9.5, round(x, 2)))
