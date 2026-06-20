@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 # =========================================================
-# IMPORT FORMULAS (optional)
+# OPTIONAL IMPORTS (kept for compatibility)
 # =========================================================
 from rating.formulas import (
     defender_rating,
@@ -84,7 +84,7 @@ def get_role(pos):
 
 
 # =========================================================
-# MATCH IMPACT (ALL PER 90 FIXED)
+# MATCH IMPACT MODEL
 # =========================================================
 def match_impact(row, f):
 
@@ -104,14 +104,14 @@ def match_impact(row, f):
     impact += 0.25 * per90(f(row, "AP"), minutes)
     impact += 0.2 * per90(f(row, "C"), minutes)
 
-    # ================= DEFENSE =================
+    # ================= DEFENSIVE =================
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
     # ================= NEGATIVE EVENTS =================
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # ================= DISCIPLINE (FIXED PER 90) =================
+    # ================= DISCIPLINE =================
     impact -= 1.8 * per90(f(row, "YC"), minutes)
     impact -= 5.0 * per90(f(row, "RC"), minutes)
 
@@ -125,21 +125,21 @@ def calculate_rating(row):
 
     role = get_role(row.get("Pos.", row.get("Pos", "UNKNOWN")))
 
+    minutes = f(row, "MP")
+    if minutes <= 0:
+        minutes = 90
+
     impact = match_impact(row, f)
 
     # ================= ROLE WEIGHTING =================
     if role == "DEF":
         rating = 6 + impact * 0.85
-
     elif role == "MID":
         rating = 6 + impact * 1.00
-
     elif role == "FWD":
         rating = 6 + impact * 1.15
-
     elif role == "GK":
         rating = 6 + impact * 0.90
-
     else:
         rating = 6 + impact
 
@@ -168,6 +168,9 @@ def run_match(match_name):
         print("No data found")
         return
 
+    # =====================================================
+    # MERGE
+    # =====================================================
     if stats.empty:
         df = events.copy()
     elif events.empty:
@@ -177,8 +180,25 @@ def run_match(match_name):
 
     df = df.fillna(0)
 
+    # =====================================================
+    # FIX MP (SOURCE OF TRUTH = EVENTS)
+    # =====================================================
+    if "MP" in events.columns:
+        mp_map = events[["player", "MP"]].drop_duplicates()
+        df = df.drop(columns=["MP"], errors="ignore")
+        df = df.merge(mp_map, on="player", how="left")
+
+    df["MP"] = df["MP"].fillna(90)
+    df["MP"] = df["MP"].clip(lower=1)
+
+    # =====================================================
+    # RATING
+    # =====================================================
     df["rating"] = df.apply(calculate_rating, axis=1)
 
+    # =====================================================
+    # SAVE
+    # =====================================================
     os.makedirs("data", exist_ok=True)
 
     output_file = f"data/{match_name}_ratings.csv"
@@ -192,7 +212,7 @@ def run_match(match_name):
 
 
 # =========================================================
-# CLI ENTRY
+# ENTRY
 # =========================================================
 if __name__ == "__main__":
 
