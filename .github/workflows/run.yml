@@ -1,4 +1,4 @@
-name: Run Soccer Rating Engine
+name: Run Rating Engine
 
 on:
   workflow_dispatch:
@@ -19,11 +19,11 @@ jobs:
       - name: Install dependencies
         run: pip install pandas numpy
 
-      - name: Run rating engine
-        run: python rating_engine.py
+      - name: Run USA vs Paraguay
+        run: python rating_engine.py usa_para
 
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: player-ratings
-          path: data/player_ratings.csv
+          name: ratings
+          path: data/usa_para_ratings.csv
