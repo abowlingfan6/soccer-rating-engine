@@ -20,6 +20,9 @@ def f(row, key):
 
 # ================= MAIN RATING =================
 def calculate_rating(row):
+    print("\n=== DEBUG PLAYER ROW ===")
+    print(row.to_dict())
+    exit()
 
     pos = str(row.get("Pos", "UNKNOWN")).upper()
 
