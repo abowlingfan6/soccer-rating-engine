@@ -85,7 +85,7 @@ BASE = 6.0
 # =========================================================
 def calculate_rating(row):
 
-    pos = str(row.get("Pos.", ""))
+    pos = str(row.get("Pos", row.get("POS", row.get("Position", ""))))
 
     # -------------------------
     # STATS FILE
