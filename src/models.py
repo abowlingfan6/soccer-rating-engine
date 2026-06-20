@@ -1,87 +1,71 @@
 import numpy as np
-from src.config import MAX_RATING, MINUTES_BASE
 
-def normalize(value, minutes):
-    if minutes == 0:
-        return 0
-    return value * (MINUTES_BASE / minutes)
+# ---------- SAFE COLUMN ACCESS ----------
+def get(row, col):
+    return row[col] if col in row and not np.isnan(row[col]) else 0
 
 
-def clamp(value):
-    return max(0, min(MAX_RATING, value))
+# ---------- CORE ENGINE ----------
+def base_outfield_rating(row):
+    rating = 6
+
+    # attacking output
+    rating += 1.25 * get(row, "G")
+    rating += 0.5 * get(row, "A")
+    rating += 0.4 * get(row, "SOnT")
+    rating += 0.2 * get(row, "BS")
+
+    # passing / involvement
+    rating += 0.05 * get(row, "P")
+    rating += 0.1 * get(row, "C")
+    rating += 0.075 * get(row, "Tk")
+    rating += 0.075 * get(row, "INT")
+
+    # duels / work rate proxies
+    rating += 0.2 * get(row, "FW")
+    rating += 0.2 * get(row, "PW")
+
+    # negatives
+    rating -= 0.1 * get(row, "FC")
+    rating -= 0.2 * get(row, "YC")
+    rating -= 0.8 * get(row, "RC")
+    rating -= 0.3 * get(row, "O")
+
+    return rating
 
 
-# -------------------------
-# DEFENDER
-# -------------------------
+# ---------- POSITION MODELS ----------
 def defender_rating(row):
-    mp = row["MP"]
-
-    rating = 6
-
-    rating += 1.25 * normalize(row["Tk"], mp)
-    rating += 0.5 * normalize(row["INT"], mp)
-    rating += 0.4 * normalize(row["GC"] - 0.5, mp)
-    rating += 0.5 * normalize(row["PW"], mp)
-
-    rating += 0.1 * normalize(row["C"], mp)
-    rating += 0.075 * normalize(row["P"], mp)
-
-    rating += 0.5 * normalize(row["FW"], mp)
-
-    rating -= 0.2 * normalize(row["YC"], mp)
-    rating -= 1.0 * normalize(row["RC"], mp)
-
-    rating -= 0.8 * normalize(row["SAV"], mp)
-
-    return clamp(rating)
+    return base_outfield_rating(row)
 
 
-# -------------------------
-# MIDFIELDER
-# -------------------------
 def midfielder_rating(row):
-    mp = row["MP"]
-
-    rating = 6
-
-    rating += 1.25 * normalize(row["G"], mp)
-    rating += 0.5 * normalize(row["A"], mp)
-    rating += 0.4 * normalize(row["P"], mp)
-
-    rating += 0.4 * normalize(row["Tk"], mp)
-    rating += 0.4 * normalize(row["INT"], mp)
-
-    rating += 0.2 * normalize(row["FW"], mp)
-    rating += 0.075 * normalize(row["FC"], mp)
-
-    rating += 0.5 * normalize(row["C"], mp)
-
-    rating -= 0.2 * normalize(row["YC"], mp)
-    rating -= 1.0 * normalize(row["RC"], mp)
-
-    return clamp(rating)
+    return base_outfield_rating(row)
 
 
-# -------------------------
-# FORWARD
-# -------------------------
 def forward_rating(row):
-    mp = row["MP"]
+    return base_outfield_rating(row)
+
+
+# ---------- SUB MODEL (NEW + FIXED) ----------
+def sub_rating(row):
+    minutes = max(get(row, "MP"), 1)
+    scale = 90 / minutes  # per 90 adjustment
 
     rating = 6
 
-    rating += 1.25 * normalize(row["G"], mp)
-    rating += 0.5 * normalize(row["A"], mp)
+    # impact weighted heavily per minute
+    rating += 1.5 * get(row, "G") * scale
+    rating += 0.8 * get(row, "A") * scale
+    rating += 0.4 * get(row, "SOnT") * scale
 
-    rating += 0.4 * normalize(row["SOnT"], mp)
-    rating += 0.2 * normalize(row["BS"], mp)
+    rating += 0.1 * get(row, "Tk") * scale
+    rating += 0.1 * get(row, "INT") * scale
+    rating += 0.05 * get(row, "P") * scale
+    rating += 0.1 * get(row, "C") * scale
 
-    rating += 0.5 * normalize(row["FW"], mp)
+    # discipline penalties (not scaled)
+    rating -= 0.2 * get(row, "YC")
+    rating -= 0.8 * get(row, "RC")
 
-    rating -= 0.3 * normalize(row["FC"], mp)
-    rating -= 0.2 * normalize(row["O"], mp)
-
-    rating -= 1.0 * normalize(row["RC"], mp)
-
-    return clamp(rating)
+    return rating
