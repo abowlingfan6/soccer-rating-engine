@@ -1,25 +1,38 @@
+# src/main.py
+
+import pandas as pd
 from src.models import defender_rating, midfielder_rating, forward_rating
-from src.parser import load_data
+
 
 def rate_player(row):
-    stats = row.to_dict()
+    s = row.to_dict()
+    pos = s.get("Pos", "")
 
-    role = stats["Pos"]
-
-    if role == "DF":
-        return defender_rating(stats)
-    elif role == "MF":
-        return midfielder_rating(stats)
-    elif role == "FW":
-        return forward_rating(stats)
+    if pos == "DF":
+        return defender_rating(s)
+    elif pos == "MF":
+        return midfielder_rating(s)
+    elif pos == "FW":
+        return forward_rating(s)
     else:
         return 6
 
-def run(file):
-    df = load_data(file)
+
+def run(file_path):
+    df = pd.read_csv(file_path)
+
     df["Rating"] = df.apply(rate_player, axis=1)
-    return df.sort_values("Rating", ascending=False)
+
+    df = df.sort_values("Rating", ascending=False)
+
+    return df
+
 
 if __name__ == "__main__":
     result = run("data/mexico_vs_south_africa.csv")
+
+    print("\nTOP PLAYERS:\n")
     print(result[["player", "Pos", "Rating"]])
+
+    result.to_csv("output_ratings.csv", index=False)
+    print("\nSaved: output_ratings.csv")
