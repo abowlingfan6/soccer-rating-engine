@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 # =========================================================
-# IMPORT FORMULAS (if you still use them elsewhere)
+# OPTIONAL IMPORTS (if you still use external formulas)
 # =========================================================
 from rating.formulas import (
     defender_rating,
@@ -13,7 +13,7 @@ from rating.formulas import (
 )
 
 # =========================================================
-# COLUMN MAP (fix mismatches in your dataset)
+# COLUMN MAP
 # =========================================================
 COLUMN_MAP = {
     "SOG": "SOnT",
@@ -32,11 +32,14 @@ COLUMN_MAP = {
     "SCA": "SCA",
     "O": "O",
     "SAV": "SAV",
-    "MP": "MP"
+    "MP": "MP",
+    "OPP_RATING": "OPP_RATING",
+    "POS": "POS",
+    "GD": "GD"
 }
 
 # =========================================================
-# SAFE VALUE FETCHER
+# SAFE VALUE FETCH
 # =========================================================
 def f(row, key):
 
@@ -57,7 +60,7 @@ def f(row, key):
 
 
 # =========================================================
-# PER 90 FUNCTION
+# PER 90
 # =========================================================
 def per90(value, minutes):
     if minutes <= 0:
@@ -66,7 +69,34 @@ def per90(value, minutes):
 
 
 # =========================================================
-# ROLE CLASSIFIER
+# CONTEXT FACTORS
+# =========================================================
+def opp_factor(row, f):
+    opp = f(row, "OPP_RATING")
+    if opp <= 0:
+        return 1.0
+    return 1.0 / opp
+
+
+def possession_factor(row, f):
+    poss = f(row, "POS")
+    if poss <= 0:
+        return 1.0
+    return 1.0 + (0.5 - poss) * 0.6
+
+
+def game_state_factor(row, f):
+    gd = f(row, "GD")
+
+    if gd > 1:
+        return 0.95
+    if gd < -1:
+        return 1.10
+    return 1.0
+
+
+# =========================================================
+# ROLE
 # =========================================================
 def get_role(pos):
     pos = str(pos).upper()
@@ -83,7 +113,7 @@ def get_role(pos):
 
 
 # =========================================================
-# MATCH IMPACT MODEL (SCOUTING GRADE)
+# IMPACT MODEL
 # =========================================================
 def match_impact(row, f):
 
@@ -93,32 +123,37 @@ def match_impact(row, f):
 
     impact = 0
 
-    # ================= OFFENSIVE IMPACT =================
+    # OFFENSIVE
     impact += 1.3 * per90(f(row, "G"), minutes)
     impact += 0.7 * per90(f(row, "A"), minutes)
     impact += 0.5 * per90(f(row, "xG"), minutes)
     impact += 0.4 * per90(f(row, "SCA"), minutes)
 
-    # ================= PROGRESSION =================
-    impact += 0.25 * per90(f(row, "AP"), minutes)
-    impact += 0.2 * per90(f(row, "C"), minutes)
+    # BUILDUP
+    impact += 0.3 * per90(f(row, "AP"), minutes)
+    impact += 0.25 * per90(f(row, "C"), minutes)
 
-    # ================= DEFENSIVE =================
+    # DEFENSE
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
-    # ================= NEGATIVE EVENTS =================
+    # ERRORS
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # ================= DISCIPLINE =================
+    # DISCIPLINE
     impact -= 1.8 * f(row, "YC")
     impact -= 5.0 * f(row, "RC")
+
+    # CONTEXT
+    impact *= opp_factor(row, f)
+    impact *= possession_factor(row, f)
+    impact *= game_state_factor(row, f)
 
     return impact
 
 
 # =========================================================
-# MAIN RATING FUNCTION
+# RATING FUNCTION
 # =========================================================
 def calculate_rating(row):
 
@@ -126,27 +161,22 @@ def calculate_rating(row):
 
     impact = match_impact(row, f)
 
-    # ================= ROLE WEIGHTING =================
     if role == "DEF":
         rating = 6 + impact * 0.85
-
     elif role == "MID":
         rating = 6 + impact * 1.00
-
     elif role == "FWD":
         rating = 6 + impact * 1.15
-
     elif role == "GK":
         rating = 6 + impact * 0.90
-
     else:
         rating = 6 + impact
 
-    # ================= RED CARD HARD CAP =================
+    # RED CARD HARD CAP
     if f(row, "RC") > 0:
         rating = min(rating, 2.5)
 
-    # ================= STABILITY NORMALIZATION =================
+    # STABILITY NORMALIZATION
     rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.15)
 
     return max(0, min(10, round(rating, 2)))
@@ -191,7 +221,7 @@ def run_match(match_name):
 
 
 # =========================================================
-# CLI ENTRY
+# ENTRY
 # =========================================================
 if __name__ == "__main__":
 
