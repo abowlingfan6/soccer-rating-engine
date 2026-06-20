@@ -3,7 +3,7 @@ import os
 import pandas as pd
 
 # =========================================================
-# IMPORT FORMULAS (if you still use them elsewhere)
+# IMPORT FORMULAS (optional)
 # =========================================================
 from rating.formulas import (
     defender_rating,
@@ -13,7 +13,7 @@ from rating.formulas import (
 )
 
 # =========================================================
-# COLUMN MAP (fix mismatches in your dataset)
+# COLUMN MAP
 # =========================================================
 COLUMN_MAP = {
     "SOG": "SOnT",
@@ -36,7 +36,7 @@ COLUMN_MAP = {
 }
 
 # =========================================================
-# SAFE VALUE FETCHER
+# SAFE FETCH
 # =========================================================
 def f(row, key):
 
@@ -57,11 +57,11 @@ def f(row, key):
 
 
 # =========================================================
-# PER 90 FUNCTION
+# PER 90 NORMALIZATION
 # =========================================================
 def per90(value, minutes):
     if minutes <= 0:
-        return 0
+        return 0.0
     return (value / minutes) * 90
 
 
@@ -79,11 +79,12 @@ def get_role(pos):
         return "FWD"
     elif pos == "GK":
         return "GK"
+
     return "MID"
 
 
 # =========================================================
-# MATCH IMPACT MODEL (SCOUTING GRADE)
+# MATCH IMPACT (ALL PER 90 FIXED)
 # =========================================================
 def match_impact(row, f):
 
@@ -93,32 +94,32 @@ def match_impact(row, f):
 
     impact = 0
 
-    # ================= OFFENSIVE IMPACT =================
+    # ================= OFFENSIVE =================
     impact += 1.3 * per90(f(row, "G"), minutes)
     impact += 0.7 * per90(f(row, "A"), minutes)
     impact += 0.5 * per90(f(row, "xG"), minutes)
     impact += 0.4 * per90(f(row, "SCA"), minutes)
 
-    # ================= PROGRESSION =================
+    # ================= BUILDUP =================
     impact += 0.25 * per90(f(row, "AP"), minutes)
     impact += 0.2 * per90(f(row, "C"), minutes)
 
-    # ================= DEFENSIVE =================
+    # ================= DEFENSE =================
     impact += 0.3 * per90(f(row, "Tk"), minutes)
 
     # ================= NEGATIVE EVENTS =================
     impact -= 0.3 * per90(f(row, "FC"), minutes)
     impact -= 0.25 * per90(f(row, "O"), minutes)
 
-    # ================= DISCIPLINE =================
-    impact -= 1.8 * f(row, "YC")
-    impact -= 5.0 * f(row, "RC")
+    # ================= DISCIPLINE (FIXED PER 90) =================
+    impact -= 1.8 * per90(f(row, "YC"), minutes)
+    impact -= 5.0 * per90(f(row, "RC"), minutes)
 
     return impact
 
 
 # =========================================================
-# MAIN RATING FUNCTION
+# FINAL RATING FUNCTION
 # =========================================================
 def calculate_rating(row):
 
@@ -184,7 +185,7 @@ def run_match(match_name):
     df.to_csv(output_file, index=False)
 
     print("\n=== TOP PLAYERS ===")
-    print(df[["player", "rating"]].head(20))
+    print(df[["player", "rating"]].sort_values("rating", ascending=False).head(20))
 
     print("\nSaved:", output_file)
     print("DONE")
