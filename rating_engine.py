@@ -170,7 +170,9 @@ def calculate_rating(row):
     else:
         rating += goals + assists * 0.5 + xg
 
-    return round(rating, 2)
+    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.3)
+
+return round(min(max(rating, 0), 10), 2)
 
 # =========================================================
 # APPLY MODEL
