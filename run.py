@@ -1,44 +1,184 @@
-import os
+import sys
 import pandas as pd
-from rating.formulas import rating as calc_rating
+import numpy as np
+import os
 
+# =========================================================
+# LOAD FILE
+# =========================================================
+def load_data(match_name):
+    path = f"data/{match_name}.csv"
 
-def clean_columns(df):
-    df.columns = df.columns.str.strip().str.replace(".", "", regex=False)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"❌ File not found: {path}")
+
+    df = pd.read_csv(path)
+
+    # clean column names (VERY IMPORTANT)
+    df.columns = df.columns.str.strip()
+
+    # fill missing
+    df = df.fillna(0)
+
     return df
 
 
+# =========================================================
+# ROLE MAP
+# =========================================================
+def get_role(pos):
+    pos = str(pos).upper()
+
+    if "GK" in pos:
+        return "GK"
+    if "DF" in pos:
+        return "DEF"
+    if "FW" in pos:
+        return "FWD"
+    return "MID"
+
+
+# =========================================================
+# PER 90 SAFE
+# =========================================================
+def per90(value, minutes):
+    if minutes <= 0:
+        return 0
+    return (value / minutes) * 90
+
+
+# =========================================================
+# CORE RATING MODEL (SOFASCORE-LIKE DISTRIBUTION)
+# =========================================================
+def compute_rating(row):
+
+    mp = float(row.get("MP", 90))
+    mp = max(mp, 1)
+
+    role = get_role(row.get("Pos.", ""))
+
+    # ------------------------
+    # OFFENSIVE IMPACT
+    # ------------------------
+    g   = per90(row.get("G", 0), mp)
+    a   = per90(row.get("A", 0), mp)
+    sot = per90(row.get("SOnT", 0), mp)
+    sofft = per90(row.get("SOffT", 0), mp)
+    bs  = per90(row.get("BS", 0), mp)
+
+    attack = (
+        1.35 * g +
+        0.90 * a +
+        0.25 * sot +
+        0.10 * sofft +
+        0.15 * bs
+    )
+
+    # ------------------------
+    # MIDFIELD / PROGRESSION
+    # ------------------------
+    p   = per90(row.get("P", 0), mp)
+    c   = per90(row.get("C", 0), mp)
+    tk  = per90(row.get("Tk", 0), mp)
+    inte = per90(row.get("INT", 0), mp)
+    fw  = per90(row.get("FW", 0), mp)
+
+    midfield = (
+        0.03 * p +
+        0.08 * c +
+        0.20 * tk +
+        0.18 * inte +
+        0.12 * fw
+    )
+
+    # ------------------------
+    # DEFENSIVE ACTIONS
+    # ------------------------
+    fc = per90(row.get("FC", 0), mp)
+    o  = per90(row.get("O", 0), mp)
+
+    defense = (
+        0.22 * tk +
+        0.20 * inte -
+        0.15 * fc -
+        0.10 * o
+    )
+
+    # ------------------------
+    # GOALKEEPER
+    # ------------------------
+    sav = per90(row.get("SAV", 0), mp)
+    psav = per90(row.get("PSAV", 0), mp)
+
+    gk = 0.9 * sav + 0.6 * psav
+
+    # ------------------------
+    # DISCIPLINE (IMPORTANT FIX)
+    # ------------------------
+    yc = row.get("YC", 0)
+    rc = row.get("RC", 0)
+
+    discipline = -0.35 * yc - 1.0 * rc   # EXACT RED CARD = -1.0 impact unit
+
+    # ------------------------
+    # BASE IMPACT
+    # ------------------------
+    if role == "GK":
+        impact = gk
+    elif role == "DEF":
+        impact = defense + attack * 0.25
+    elif role == "MID":
+        impact = midfield + attack * 0.35
+    else:
+        impact = attack + midfield * 0.15
+
+    # ------------------------
+    # MINUTES STABILITY CURVE (CRITICAL FIX)
+    # prevents subs from inflating ratings
+    # ------------------------
+    minutes_factor = np.tanh(mp / 60)
+
+    impact = impact * minutes_factor + discipline
+
+    # ------------------------
+    # SOFT LOGISTIC NORMALIZATION
+    # forces realistic distribution
+    # ------------------------
+    rating = 6 + (impact * 1.2)
+
+    rating = 5 + (rating - 5) / (1 + abs(rating - 6) * 0.35)
+
+    # clamp realistic range
+    rating = max(4.0, min(9.8, rating))
+
+    return round(rating, 1)
+
+
+# =========================================================
+# RUN PIPELINE
+# =========================================================
 def run(match_name):
 
-    file_path = f"data/{match_name}.csv"
+    df = load_data(match_name)
 
-    if not os.path.exists(file_path):
-        print(f"❌ File not found: {file_path}")
-        return
+    df["rating"] = df.apply(compute_rating, axis=1)
 
-    print(f"=== Running {file_path} ===")
+    # ensure columns exist safely
+    cols = ["player", "Pos.", "MP", "rating"]
+    cols = [c for c in cols if c in df.columns]
 
-    df = pd.read_csv(file_path)
-    df = clean_columns(df)
-    df = df.fillna(0)
-
-    if "player" not in df.columns:
-        print("❌ Missing player column")
-        return
-
-    df["rating"] = df.apply(calc_rating, axis=1)
-
-    # ===== FINAL NORMALIZATION (prevents extreme outliers) =====
-    df["rating"] = df["rating"].clip(3.5, 9.3).round(1)
+    print("\n=== RATINGS ===")
+    print(df[cols])
 
     out_path = f"data/{match_name}_ratings.csv"
     df.to_csv(out_path, index=False)
 
-    print(f"✅ Saved: {out_path}")
-    print("Done.")
+    print("\n✅ Saved:", out_path)
 
 
+# =========================================================
+# CLI
+# =========================================================
 if __name__ == "__main__":
-    import sys
     match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
     run(match_name)
