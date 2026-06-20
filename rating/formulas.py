@@ -2,7 +2,7 @@ import numpy as np
 
 
 # =========================================================
-# SAFE GETTER
+# SAFE FETCH
 # =========================================================
 def f(row, key):
     try:
@@ -12,108 +12,81 @@ def f(row, key):
 
 
 # =========================================================
-# PER 90 SCALING (ONLY NORMALIZATION USED)
+# PER 90
 # =========================================================
 def per90(value, mp):
-    if mp <= 0:
-        return 0.0
+    mp = max(mp, 1)
     return (value / mp) * 90
 
 
 # =========================================================
-# CORE STAT BLOCKS
+# ROLE
 # =========================================================
-def attack(row, mp):
-    return (
-        1.4 * per90(f(row, "G"), mp) +
-        0.8 * per90(f(row, "A"), mp) +
-        0.4 * per90(f(row, "SOnT"), mp) +
-        0.2 * per90(f(row, "BS"), mp)
+def role(pos):
+    pos = str(pos).upper()
+    if "GK" in pos:
+        return "GK"
+    if "DF" in pos:
+        return "DEF"
+    if "FW" in pos:
+        return "FWD"
+    return "MID"
+
+
+# =========================================================
+# IMPACT MODEL
+# =========================================================
+def impact(row):
+
+    mp = f(row, "MP")
+
+    attack = (
+        1.5 * per90(f(row, "G"), mp) +
+        0.9 * per90(f(row, "A"), mp) +
+        0.4 * per90(f(row, "SOnT"), mp)
     )
 
-
-def build(row, mp):
-    return (
+    build = (
         0.25 * per90(f(row, "P"), mp) +
         0.2 * per90(f(row, "C"), mp)
     )
 
-
-def defense(row, mp):
-    return (
-        0.3 * per90(f(row, "Tk"), mp) +
+    defense = (
+        0.35 * per90(f(row, "Tk"), mp) +
         0.25 * per90(f(row, "INT"), mp) +
         0.2 * per90(f(row, "FW"), mp)
     )
 
-
-def negative(row, mp):
-    return (
+    mistakes = (
         0.25 * per90(f(row, "FC"), mp) +
         0.15 * per90(f(row, "O"), mp)
     )
 
+    yc = -0.4 * f(row, "YC")
+    rc = -1.0 * f(row, "RC")   # your fixed rule
 
-# =========================================================
-# DISCIPLINE (OPTION A ONLY)
-# =========================================================
-def discipline(row):
-    return 0.8 * f(row, "YC") + 1.0 * f(row, "RC")
+    return attack + build + defense - mistakes + yc + rc
 
 
 # =========================================================
-# ROLE MODELS
+# FINAL RATING
 # =========================================================
-def defender_rating(row, mp):
-    impact = (
-        attack(row, mp) * 0.5 +
-        build(row, mp) * 0.8 +
-        defense(row, mp) * 1.3 -
-        negative(row, mp) -
-        discipline(row)
-    )
+def rating(row):
 
-    return _normalize(6 + impact)
+    r = role(row.get("Pos.", ""))
 
+    base = impact(row)
 
-def midfielder_rating(row, mp):
-    impact = (
-        attack(row, mp) * 0.9 +
-        build(row, mp) * 1.2 +
-        defense(row, mp) * 1.0 -
-        negative(row, mp) -
-        discipline(row)
-    )
+    if r == "DEF":
+        score = 6 + base * 1.0
+    elif r == "MID":
+        score = 6 + base * 1.1
+    elif r == "FWD":
+        score = 6 + base * 1.2
+    else:
+        score = 6 + base * 0.9
 
-    return _normalize(6 + impact)
+    # smooth distribution (prevents 10 spam)
+    score = 6 + (score - 6) * 0.65
 
-
-def forward_rating(row, mp):
-    impact = (
-        attack(row, mp) * 1.4 +
-        build(row, mp) * 0.7 +
-        defense(row, mp) * 0.4 -
-        negative(row, mp) -
-        discipline(row)
-    )
-
-    return _normalize(6 + impact)
-
-
-def gk_rating(row, mp):
-    impact = (
-        1.5 * per90(f(row, "SAV"), mp) +
-        1.2 * per90(f(row, "PSAV"), mp) -
-        0.8 * per90(f(row, "GC"), mp) -
-        discipline(row)
-    )
-
-    return _normalize(6 + impact)
-
-
-# =========================================================
-# STABLE NORMALIZER (NO 10 SPAM)
-# =========================================================
-def _normalize(x):
-    x = 6 + np.tanh((x - 6) / 2.0) * 2.2
-    return max(3.0, min(9.5, round(x, 2)))
+    return float(np.clip(score, 3.0, 9.5))
