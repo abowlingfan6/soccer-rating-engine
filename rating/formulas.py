@@ -8,9 +8,9 @@ def f(row, key):
         return 0.0
 
 
-def per90(value, mp):
+def per90(val, mp):
     mp = max(float(mp), 1)
-    return (value / mp) * 90
+    return (val / mp) * 90
 
 
 def role(pos):
@@ -29,37 +29,37 @@ def impact(row):
 
     mp = f(row, "MP")
 
-    # ===== ATTACK =====
+    # ---------------- ATTACK (more selective now) ----------------
     attack = (
-        1.25 * per90(f(row, "G"), mp) +
-        0.75 * per90(f(row, "A"), mp) +
-        0.20 * per90(f(row, "SOnT"), mp) +
+        1.4 * per90(f(row, "G"), mp) +
+        0.9 * per90(f(row, "A"), mp) +
+        0.25 * per90(f(row, "SOnT"), mp) +
         0.15 * per90(f(row, "BS"), mp)
     )
 
-    # ===== PROGRESSION =====
+    # ---------------- BUILDUP (lower weight to reduce inflation) ----------------
     build = (
-        0.15 * per90(f(row, "P"), mp) +
-        0.10 * per90(f(row, "C"), mp) +
-        0.10 * per90(f(row, "FW"), mp)
+        0.10 * per90(f(row, "P"), mp) +
+        0.08 * per90(f(row, "C"), mp) +
+        0.05 * per90(f(row, "FW"), mp)
     )
 
-    # ===== DEFENSE =====
+    # ---------------- DEFENSE (slightly stronger separation) ----------------
     defense = (
-        0.20 * per90(f(row, "Tk"), mp) +
-        0.20 * per90(f(row, "INT"), mp)
+        0.25 * per90(f(row, "Tk"), mp) +
+        0.25 * per90(f(row, "INT"), mp)
     )
 
-    # ===== MISTAKES =====
+    # ---------------- NEGATIVE EVENTS (VERY IMPORTANT FIX) ----------------
     mistakes = (
-        0.25 * per90(f(row, "FC"), mp) +
-        0.20 * per90(f(row, "O"), mp)
+        0.35 * per90(f(row, "FC"), mp) +
+        0.30 * per90(f(row, "O"), mp)
     )
 
-    # ===== DISCIPLINE (IMPORTANT FIX) =====
+    # ---------------- DISCIPLINE (your rule kept) ----------------
     discipline = (
-        -0.5 * f(row, "YC") +
-        -1.0 * f(row, "RC")   # EXACT -1 penalty
+        -0.6 * f(row, "YC") +
+        -1.0 * f(row, "RC")   # hard -1
     )
 
     return attack + build + defense - mistakes + discipline
@@ -72,15 +72,19 @@ def rating(row):
 
     base = impact(row)
 
-    # ===== PER 90 CONTROL (light touch, not flattening) =====
-    time_factor = np.sqrt(min(mp / 90, 1.0))  # keeps subs from exploding
+    # ---------------- KEY FIX: spread amplifier ----------------
+    time_factor = np.sqrt(min(mp / 90, 1.0))
 
-    score = 6 + base * 1.05 * time_factor
+    score = 6 + base * 1.2 * time_factor
 
-    # ===== ROLE BIAS (very small, just realism) =====
+    # ---------------- ROLE DIFFERENTIATION (slightly stronger now) ----------------
     if r == "DEF":
-        score -= 0.1
+        score -= 0.15
     elif r == "FWD":
-        score += 0.15
+        score += 0.20
+
+    # ---------------- FINAL SPREAD CONTROL (THIS FIXES 9.3 CLUSTERING) ----------------
+    # pushes average toward 6.5 instead of everyone drifting high
+    score = 6.5 + (score - 6.5) * 0.75
 
     return float(score)
