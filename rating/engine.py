@@ -1,4 +1,7 @@
-import numpy as np
+import sys
+import os
+import pandas as pd
+
 from rating.formulas import (
     defender_rating,
     midfielder_rating,
@@ -23,39 +26,21 @@ def calculate_rating(row):
 
     pos = str(row.get("Pos", "UNKNOWN")).strip().upper()
 
-    # -----------------------------------------------------
-    # SAFE ACCESSOR
-    # -----------------------------------------------------
     def f(key):
         return safe_float(row, key)
 
-    # =====================================================
-    # GOALKEEPER
-    # =====================================================
     if pos == "GK":
         rating = gk_rating(row, f)
 
-    # =====================================================
-    # DEFENDER
-    # =====================================================
     elif pos == "DF":
         rating = defender_rating(row, f)
 
-    # =====================================================
-    # MIDFIELDER
-    # =====================================================
     elif pos == "MF":
         rating = midfielder_rating(row, f)
 
-    # =====================================================
-    # FORWARD
-    # =====================================================
     elif pos == "FW":
         rating = forward_rating(row, f)
 
-    # =====================================================
-    # UNKNOWN POSITION (SAFE FALLBACK)
-    # =====================================================
     else:
         rating = (
             6
@@ -63,62 +48,33 @@ def calculate_rating(row):
             + 0.3 * f("A")
             + 0.2 * f("xG")
             + 0.1 * f("SCA")
-            - 0.2 * f("RC")
-            - 0.1 * f("YC")
         )
 
     # =====================================================
-    # NORMALIZATION (STABILITY LAYER)
-    # prevents extreme outliers / broken games
+    # NORMALIZATION (stability layer)
     # =====================================================
     rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.30)
 
-    # clamp to 0–10
     rating = max(0, min(10, rating))
 
     return round(rating, 2)
 
 
 # =========================================================
-# OPTIONAL: BULK APPLY FUNCTION (KEEP IF YOU USE IT)
+# PIPELINE RUNNER (CLI ENTRY POINT)
 # =========================================================
-def apply_ratings(df):
-    df["rating"] = df.apply(calculate_rating, axis=1)
-    return df
-
-output_file = f"data/{match_name}_ratings.csv"
-df.to_csv(output_file, index=False)
-
-# =========================================================
-# OUTPUT
-# =========================================================
-print("\n=== TOP PLAYERS ===")
-print(df[["player", "rating"]].head(20))
-
-print("\nSaved:", output_file)
-print("DONE")
-if __name__ == "__main__":
-    import sys
-    import os
-    import pandas as pd
-
-    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
+def run_match(match_name: str):
 
     stats_file = f"data/{match_name}_stats.csv"
     events_file = f"data/{match_name}_events.csv"
 
-    from rating_engine import safe_read, normalize_schema
-    from rating.engine import calculate_rating
-
-    stats = safe_read(stats_file)
-    events = safe_read(events_file)
-
-    stats = normalize_schema(stats)
-    events = normalize_schema(events)
+    # load safely
+    stats = pd.read_csv(stats_file) if os.path.exists(stats_file) else pd.DataFrame()
+    events = pd.read_csv(events_file) if os.path.exists(events_file) else pd.DataFrame()
 
     if stats.empty and events.empty:
-        print("No data found")
-        exit()
+        print(f"No data found for {match_name}")
+        return
 
     if stats.empty:
         df = events.copy()
@@ -136,5 +92,18 @@ if __name__ == "__main__":
     output_file = f"data/{match_name}_ratings.csv"
     df.to_csv(output_file, index=False)
 
+    print("\n=== TOP PLAYERS ===")
     print(df[["player", "rating"]].head(20))
-    print("Saved:", output_file)
+
+    print("\nSaved:", output_file)
+    print("DONE")
+
+
+# =========================================================
+# CLI ENTRY
+# =========================================================
+if __name__ == "__main__":
+
+    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
+
+    run_match(match_name)
