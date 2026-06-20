@@ -1,6 +1,6 @@
-import sys
-import os
 import pandas as pd
+import numpy as np
+import os
 
 from rating.formulas import (
     defender_rating,
@@ -9,77 +9,57 @@ from rating.formulas import (
     gk_rating
 )
 
-# =========================================================
-# SAFE CONVERTER
-# =========================================================
-def safe_float(row, key):
+
+# ================= SAFE READER =================
+def f(row, key):
     try:
         return float(row.get(key, 0))
     except:
         return 0.0
 
 
-# =========================================================
-# MAIN RATING FUNCTION
-# =========================================================
+# ================= MAIN RATING =================
 def calculate_rating(row):
 
-    pos = str(row.get("Pos", "UNKNOWN")).strip().upper()
+    pos = str(row.get("Pos", "UNKNOWN")).upper()
 
-    def f(key):
-        return safe_float(row, key)
-
-    if pos == "GK":
-        rating = gk_rating(row, f)
-
-    elif pos == "DF":
-        rating = defender_rating(row, f)
+    if pos == "DF":
+        rating = defender_rating(row, lambda k: f(row, k))
 
     elif pos == "MF":
-        rating = midfielder_rating(row, f)
+        rating = midfielder_rating(row, lambda k: f(row, k))
 
     elif pos == "FW":
-        rating = forward_rating(row, f)
+        rating = forward_rating(row, lambda k: f(row, k))
+
+    elif pos == "GK":
+        rating = gk_rating(row, lambda k: f(row, k))
 
     else:
-        rating = (
-            6
-            + 0.5 * f("G")
-            + 0.3 * f("A")
-            + 0.2 * f("xG")
-            + 0.1 * f("SCA")
-        )
+        rating = 6
 
-    # =====================================================
-    # NORMALIZATION (stability layer)
-    # =====================================================
-    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.30)
-
-    rating = max(0, min(10, rating))
-
-    return round(rating, 2)
+    # normalize
+    rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.3)
+    return max(0, min(10, round(rating, 2)))
 
 
-# =========================================================
-# PIPELINE RUNNER (CLI ENTRY POINT)
-# =========================================================
-def run_match(match_name: str):
+# ================= RUN MATCH =================
+def run_match(match_name):
 
-    stats_file = f"data/{match_name}_stats.csv"
-    events_file = f"data/{match_name}_events.csv"
+    stats_path = f"data/{match_name}_stats.csv"
+    events_path = f"data/{match_name}_events.csv"
 
-    # load safely
-    stats = pd.read_csv(stats_file) if os.path.exists(stats_file) else pd.DataFrame()
-    events = pd.read_csv(events_file) if os.path.exists(events_file) else pd.DataFrame()
+    stats = pd.read_csv(stats_path) if os.path.exists(stats_path) else pd.DataFrame()
+    events = pd.read_csv(events_path) if os.path.exists(events_path) else pd.DataFrame()
 
     if stats.empty and events.empty:
-        print(f"No data found for {match_name}")
+        print("No data found")
         return
 
     if stats.empty:
-        df = events.copy()
+        df = events
     elif events.empty:
-        df = stats.copy()
+        df = stats
     else:
         df = pd.merge(stats, events, on="player", how="outer")
 
@@ -89,21 +69,8 @@ def run_match(match_name: str):
 
     os.makedirs("data", exist_ok=True)
 
-    output_file = f"data/{match_name}_ratings.csv"
-    df.to_csv(output_file, index=False)
+    out = f"data/{match_name}_ratings.csv"
+    df.to_csv(out, index=False)
 
-    print("\n=== TOP PLAYERS ===")
     print(df[["player", "rating"]].head(20))
-
-    print("\nSaved:", output_file)
-    print("DONE")
-
-
-# =========================================================
-# CLI ENTRY
-# =========================================================
-if __name__ == "__main__":
-
-    match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
-
-    run_match(match_name)
+    print("Saved:", out)
