@@ -20,7 +20,7 @@ jobs:
         run: pip install pandas numpy
 
       - name: Run Mexico vs South Africa
-        run: rating_engine.py mexico_sa
+        run: python rating_engine.py mexico_sa
 
       - name: Upload results
         uses: actions/upload-artifact@v4
