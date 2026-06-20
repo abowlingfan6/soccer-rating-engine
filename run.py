@@ -1,121 +1,47 @@
-import sys
-import os
-import glob
 import pandas as pd
+import os
 
-from rating.formulas import (
-    defender_rating,
-    midfielder_rating,
-    forward_rating,
-    gk_rating
-)
-
-# =========================================================
-# AUTO FILE FINDER (FIXES YOUR ERROR)
-# =========================================================
-def find_file(match_name):
-    patterns = [
-        f"data/{match_name}.csv",
-        f"data/{match_name}_stats.csv",
-        f"data/{match_name}*.csv"
-    ]
-
-    for p in patterns:
-        matches = glob.glob(p)
-        if matches:
-            return matches[0]
-
-    return None
+from rating.formulas import rating
 
 
 # =========================================================
-# LOAD DATA
+# RUN ALL FILES
 # =========================================================
-def load_match(match_name):
-    file_path = find_file(match_name)
+def run_all():
 
-    if file_path is None:
-        print(f"❌ No file found for: {match_name}")
-        print("👉 Make sure your CSV is inside /data folder")
-        return None
+    files = [f for f in os.listdir("data") if f.endswith(".csv")]
 
-    print(f"✅ Using file: {file_path}")
-
-    df = pd.read_csv(file_path)
-    df = df.fillna(0)
-
-    # standardize position column
-    if "Pos." not in df.columns and "Pos" in df.columns:
-        df.rename(columns={"Pos": "Pos."}, inplace=True)
-
-    return df
-
-
-# =========================================================
-# ROLE CLASSIFIER
-# =========================================================
-def get_role(pos):
-    pos = str(pos).upper()
-
-    if pos == "GK":
-        return "GK"
-    elif pos == "DF":
-        return "DEF"
-    elif pos == "FW":
-        return "FWD"
-    else:
-        return "MID"
-
-
-# =========================================================
-# SAFE VALUE
-# =========================================================
-def f(row, key):
-    try:
-        return float(row.get(key, 0))
-    except:
-        return 0.0
-
-
-# =========================================================
-# MAIN RATING
-# =========================================================
-def calculate(row):
-
-    mp = float(row.get("MP", 90))
-    if mp <= 0:
-        mp = 90
-
-    role = get_role(row.get("Pos.", row.get("Pos", "MID")))
-
-    if role == "GK":
-        return gk_rating(row, mp)
-    elif role == "DEF":
-        return defender_rating(row, mp)
-    elif role == "MID":
-        return midfielder_rating(row, mp)
-    else:
-        return forward_rating(row, mp)
-
-
-# =========================================================
-# RUN MATCH
-# =========================================================
-def run(match_name):
-
-    df = load_match(match_name)
-    if df is None or df.empty:
-        print("❌ No data loaded")
+    if not files:
+        print("❌ No CSV files found in /data")
         return
 
-    df["rating"] = df.apply(calculate, axis=1)
+    for file in files:
 
-    df = df.sort_values("rating", ascending=False)
+        path = os.path.join("data", file)
+        print(f"\n=== Running {file} ===")
 
-    os.makedirs("data", exist_ok=True)
+        df = pd.read_csv(path)
+        df.columns = df.columns.str.strip()
 
-    output_file = f"data/{match_name}_ratings.csv"
-    df.to_csv(output_file, index=False)
+        if "player" not in df.columns:
+            print(f"❌ Skipping {file}: missing player column")
+            continue
+
+        df["rating"] = df.apply(rating, axis=1)
+
+        out = path.replace(".csv", "_ratings.csv")
+        df.to_csv(out, index=False)
+
+        print("✅ Saved:", out)
+
+        print(df[["player", "Pos.", "rating"]].head(10))
+
+
+# =========================================================
+# ENTRY
+# =========================================================
+if __name__ == "__main__":
+    run_all()
 
     print("\n🏆 TOP PLAYERS")
     print(df[["player", "Pos.", "rating"]].head(20))
