@@ -4,14 +4,14 @@ import numpy as np
 import os
 
 # =========================================================
-# INPUT MATCH NAME
+# INPUT
 # =========================================================
 match_name = sys.argv[1] if len(sys.argv) > 1 else "mexico_sa"
 
 stats_file = f"data/{match_name}_stats.csv"
 events_file = f"data/{match_name}_events.csv"
 
-print("\n=== RATING ENGINE START ===")
+print("\n=== SCHEMA-SAFE RATING ENGINE ===")
 print("Match:", match_name)
 
 # =========================================================
@@ -19,57 +19,61 @@ print("Match:", match_name)
 # =========================================================
 def safe_read(file):
     if not os.path.exists(file):
-        print(f"Missing file: {file}")
+        print(f"[WARN] Missing file: {file}")
         return pd.DataFrame()
 
     try:
         df = pd.read_csv(file)
         if df.empty:
-            print(f"Empty file: {file}")
+            print(f"[WARN] Empty file: {file}")
         return df
     except Exception as e:
-        print(f"Error reading {file}: {e}")
+        print(f"[ERROR] Cannot read {file}: {e}")
         return pd.DataFrame()
 
 stats = safe_read(stats_file)
 events = safe_read(events_file)
 
-if stats.empty and events.empty:
-    print("No data found — exiting")
-    exit()
-
 # =========================================================
-# CLEAN COLUMN HEADERS (THIS FIXES YOUR ERROR)
+# SCHEMA NORMALIZER (CORE FIX)
 # =========================================================
-def clean_columns(df):
+def normalize_schema(df):
     if df.empty:
         return df
 
+    # clean headers
     df.columns = (
         df.columns
         .str.strip()
         .str.replace(".", "", regex=False)
     )
+
+    # unify possible position column names
+    rename_map = {
+        "Pos": "Pos",
+        "position": "Pos",
+        "POSITION": "Pos",
+        "Pos ": "Pos",
+    }
+
+    df.rename(columns=rename_map, inplace=True)
+
+    # ensure player column exists
+    if df.columns[0] != "player":
+        df.rename(columns={df.columns[0]: "player"}, inplace=True)
+
     return df
 
-stats = clean_columns(stats)
-events = clean_columns(events)
-
-stats = stats.dropna(how="all")
-events = events.dropna(how="all")
+stats = normalize_schema(stats)
+events = normalize_schema(events)
 
 # =========================================================
-# STANDARDIZE PLAYER COLUMN
+# MERGE SAFE
 # =========================================================
-if not stats.empty:
-    stats.rename(columns={stats.columns[0]: "player"}, inplace=True)
+if stats.empty and events.empty:
+    print("No data found — exiting")
+    exit()
 
-if not events.empty:
-    events.rename(columns={events.columns[0]: "player"}, inplace=True)
-
-# =========================================================
-# MERGE DATASETS
-# =========================================================
 if stats.empty:
     df = events.copy()
 elif events.empty:
@@ -80,8 +84,11 @@ else:
 df = df.fillna(0)
 
 # =========================================================
-# SAFE NUMBER CONVERTER
+# SAFE GET FUNCTION (IMPORTANT)
 # =========================================================
+def get(row, key):
+    return row.get(key, 0) if key in row else 0
+
 def num(x):
     try:
         return float(x)
@@ -91,29 +98,30 @@ def num(x):
 BASE = 6.0
 
 # =========================================================
-# RATING FUNCTION
+# RATING FUNCTION (SCHEMA SAFE)
 # =========================================================
 def calculate_rating(row):
 
-    pos = str(row.get("Pos", ""))  # FIXED (no more Pos.)
+    # SAFE POSITION HANDLING
+    pos = str(row.get("Pos", "UNKNOWN")).strip().upper()
 
     # ---------------- STATS ----------------
-    xg = num(row.get("xG", 0))
-    shots = num(row.get("SOB", 0))
-    sot = num(row.get("HS", 0))
-    aerial = num(row.get("HW", 0))
-    duels = num(row.get("SIB", 0))
+    xg = num(get(row, "xG"))
+    shots = num(get(row, "SOB"))
+    sot = num(get(row, "HS"))
+    aerial = num(get(row, "HW"))
+    duels = num(get(row, "SIB"))
 
     # ---------------- EVENTS ----------------
-    goals = num(row.get("G", 0))
-    assists = num(row.get("A", 0))
-    passes = num(row.get("P", 0))
-    tackles = num(row.get("Tk", 0))
-    interceptions = num(row.get("O", 0))
-    crosses = num(row.get("C", 0))
-    saves = num(row.get("SAV", 0))
-    yellows = num(row.get("YC", 0))
-    reds = num(row.get("RC", 0))
+    goals = num(get(row, "G"))
+    assists = num(get(row, "A"))
+    passes = num(get(row, "P"))
+    tackles = num(get(row, "Tk"))
+    interceptions = num(get(row, "O"))
+    crosses = num(get(row, "C"))
+    saves = num(get(row, "SAV"))
+    yellows = num(get(row, "YC"))
+    reds = num(get(row, "RC"))
 
     rating = BASE
 
@@ -125,8 +133,6 @@ def calculate_rating(row):
         rating += 0.05 * passes
         rating -= 0.20 * shots
         rating += 0.5 if goals == 0 else -0.3
-        rating -= 0.5 * yellows
-        rating -= 1.0 * reds
 
     # =====================================================
     # DEF
@@ -138,9 +144,7 @@ def calculate_rating(row):
         rating += 0.20 * interceptions
         rating += 0.10 * passes
         rating += 0.10 * shots
-        rating += 0.15 * (aerial - 50) / 100
-        rating -= 0.30 * yellows
-        rating -= 0.80 * reds
+        rating += 0.15 * ((aerial - 50) / 100)
 
     # =====================================================
     # MID
@@ -155,8 +159,6 @@ def calculate_rating(row):
         rating += 0.10 * sot
         rating += 0.05 * shots
         rating += 0.10 * crosses
-        rating -= 0.30 * yellows
-        rating -= 0.80 * reds
 
     # =====================================================
     # FW
@@ -169,17 +171,18 @@ def calculate_rating(row):
         rating += 0.10 * sot
         rating += 0.10 * shots
         rating += 0.10 * crosses
-        rating -= 0.20 * yellows
-        rating -= 0.60 * reds
-
-    else:
-        rating += goals + assists * 0.5 + xg
 
     # =====================================================
-    # NORMALIZATION (prevents >10 ratings)
+    # UNKNOWN POSITION (SAFE FALLBACK)
+    # =====================================================
+    else:
+        rating += goals + assists * 0.5 + xg * 0.5
+
+    # =====================================================
+    # NORMALIZATION (NO MORE EXPLOSIONS)
     # =====================================================
     rating = 6 + (rating - 6) / (1 + abs(rating - 6) * 0.3)
-    rating = min(max(rating, 0), 10)
+    rating = max(0, min(10, rating))
 
     return round(rating, 2)
 
@@ -201,7 +204,7 @@ df.to_csv(output_file, index=False)
 # OUTPUT
 # =========================================================
 print("\n=== TOP PLAYERS ===")
-print(df[["player", "Pos", "rating"]].head(20))
+print(df[["player", "rating"]].head(20))
 
 print("\nSaved:", output_file)
 print("DONE")
