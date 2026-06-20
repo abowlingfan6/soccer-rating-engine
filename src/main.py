@@ -1,47 +1,134 @@
 import pandas as pd
-
-from src.models import defender_rating, midfielder_rating, forward_rating
-from src.parser import get_position
+import numpy as np
 
 
-def rate_player(row):
-    pos = get_position(row.get("Pos"))
+# ----------------------------
+# POSITION DETECTION
+# ----------------------------
+def get_position(pos):
+    if pd.isna(pos):
+        return "SUB"
 
-    if pos == "DF":
-        return defender_rating(row)
-    elif pos == "MF":
-        return midfielder_rating(row)
-    elif pos == "FW":
-        return forward_rating(row)
+    pos = str(pos).upper().strip()
+
+    if "DF" in pos:
+        return "DF"
+    elif "MF" in pos:
+        return "MF"
+    elif "FW" in pos:
+        return "FW"
+    elif "GK" in pos:
+        return "GK"
     else:
-        # SUB / GK fallback model
-        base = (
-            6 +
-            0.5 * row.get("G", 0) +
-            0.3 * row.get("A", 0) +
-            0.05 * row.get("P", 0)
-        )
-        return max(0, min(10, base))
+        return "SUB"
 
 
+# ----------------------------
+# PERCENTILE CONVERSION
+# ----------------------------
+def percentile_rank(series):
+    return series.rank(pct=True)
+
+
+# ----------------------------
+# ROLE WEIGHTS (SIMPLIFIED CORE)
+# ----------------------------
+def base_attack_score(row):
+    return (
+        row["G"] * 4 +
+        row["A"] * 3 +
+        row["SOnT"] * 1.5 +
+        row["BS"] * 1.2 -
+        row["SOffT"] * 0.5
+    )
+
+
+def base_mid_score(row):
+    return (
+        row["P"] * 0.2 +
+        row["C"] * 0.3 +
+        row["Tk"] * 0.8 +
+        row["INT"] * 0.8 +
+        row["FW"] * 0.5
+    )
+
+
+def base_def_score(row):
+    return (
+        row["Tk"] * 1.2 +
+        row["INT"] * 1.2 +
+        row["FW"] * 0.7 -
+        row["FC"] * 0.5
+    )
+
+
+def base_gk_score(row):
+    return row.get("SAV", 0) * 2 + row.get("PSAV", 0) * 3
+
+
+def base_sub_score(row):
+    return (
+        row["G"] * 3 +
+        row["A"] * 2 +
+        row["C"] * 0.5 +
+        row["Tk"] * 0.5
+    )
+
+
+# ----------------------------
+# MAIN RATING FUNCTION
+# ----------------------------
+def rate_players(df):
+
+    df["Pos"] = df["Pos"].apply(get_position)
+
+    # compute raw base scores
+    df["raw_attack"] = df.apply(base_attack_score, axis=1)
+    df["raw_mid"] = df.apply(base_mid_score, axis=1)
+    df["raw_def"] = df.apply(base_def_score, axis=1)
+    df["raw_gk"] = df.apply(base_gk_score, axis=1)
+    df["raw_sub"] = df.apply(base_sub_score, axis=1)
+
+    # pick role score
+    def choose(row):
+        if row["Pos"] == "FW":
+            return row["raw_attack"]
+        elif row["Pos"] == "MF":
+            return row["raw_mid"]
+        elif row["Pos"] == "DF":
+            return row["raw_def"]
+        elif row["Pos"] == "GK":
+            return row["raw_gk"]
+        else:
+            return row["raw_sub"]
+
+    df["raw_score"] = df.apply(choose, axis=1)
+
+    # ----------------------------
+    # PERCENTILE NORMALIZATION (KEY FIX)
+    # ----------------------------
+    df["pct"] = percentile_rank(df["raw_score"])
+
+    # convert to 0–10 football rating scale
+    df["Rating"] = 5 + (df["pct"] * 5)
+
+    # clamp + round
+    df["Rating"] = df["Rating"].clip(0, 10).round(1)
+
+    return df
+
+
+# ----------------------------
+# RUN
+# ----------------------------
 def main():
-    # ✅ FIXED: dynamic dataset support
+
+    # IMPORTANT: your actual file
     df = pd.read_csv("data/mexico_vs_southafrica.csv")
 
-    # clean column names (fixes your KeyError issues)
     df.columns = df.columns.str.strip()
 
-    # ensure Pos exists even if missing
-    if "Pos" not in df.columns:
-        raise ValueError("CSV missing 'Pos' column")
-
-    df["Rating"] = df.apply(rate_player, axis=1)
-
-    # round to 1 decimal
-    df["Rating"] = df["Rating"].round(1)
-
-    # final clamp safety
-    df["Rating"] = df["Rating"].clip(0, 10)
+    df = rate_players(df)
 
     print(df[["player", "Pos", "Rating"]])
 
