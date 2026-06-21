@@ -1,134 +1,62 @@
+import os
 import pandas as pd
-import numpy as np
+
+from src.models import (
+    defender_rating,
+    midfielder_rating,
+    forward_rating,
+    sub_rating
+)
 
 
-# ----------------------------
-# CLEAN POSITION HANDLING
-# ----------------------------
-def get_position(pos):
-    if pd.isna(pos):
-        return "SUB"
+# ---------- POSITION ROUTER ----------
+def rate_player(row):
+    pos = str(row.get("Pos", "")).strip()
 
-    pos = str(pos).upper().strip()
-
-    if "DF" in pos:
-        return "DF"
-    elif "MF" in pos:
-        return "MF"
-    elif "FW" in pos:
-        return "FW"
-    elif "GK" in pos:
-        return "GK"
+    if pos == "DF":
+        return defender_rating(row)
+    elif pos == "MF":
+        return midfielder_rating(row)
+    elif pos == "FW":
+        return forward_rating(row)
+    elif pos == "Sub":
+        return sub_rating(row)
     else:
-        return "SUB"
+        return 0
 
 
-# ----------------------------
-# PERCENTILE FUNCTION
-# ----------------------------
-def percentile(series):
-    return series.rank(pct=True)
+# ---------- LOAD DATA ----------
+def load_data():
+    file_path = "data/mexico_vs_southafrica.csv"
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Missing dataset: {file_path}")
+
+    return pd.read_csv(file_path)
 
 
-# ----------------------------
-# BASE ROLE MODELS
-# (simple + stable, no inflation)
-# ----------------------------
-
-def fw_score(r):
-    return (
-        r.get("G", 0) * 4 +
-        r.get("A", 0) * 3 +
-        r.get("SOnT", 0) * 1.5 +
-        r.get("BS", 0) * 1.2 -
-        r.get("SOffT", 0) * 0.5
-    )
-
-
-def mf_score(r):
-    return (
-        r.get("P", 0) * 0.2 +
-        r.get("C", 0) * 0.3 +
-        r.get("Tk", 0) * 0.9 +
-        r.get("INT", 0) * 0.9 +
-        r.get("FW", 0) * 0.5 -
-        r.get("FC", 0) * 0.3
-    )
-
-
-def df_score(r):
-    return (
-        r.get("Tk", 0) * 1.2 +
-        r.get("INT", 0) * 1.2 +
-        r.get("FW", 0) * 0.7 -
-        r.get("FC", 0) * 0.6 -
-        r.get("RC", 0) * 2.0
-    )
-
-
-def gk_score(r):
-    return (
-        r.get("SAV", 0) * 2 +
-        r.get("PSAV", 0) * 3
-    )
-
-
-def sub_score(r):
-    return (
-        r.get("G", 0) * 3 +
-        r.get("A", 0) * 2 +
-        r.get("C", 0) * 0.5 +
-        r.get("Tk", 0) * 0.5
-    )
-
-
-# ----------------------------
-# MAIN RATING ENGINE
-# ----------------------------
-def rate_players(df):
-
-    df.columns = df.columns.str.strip()
-
-    df["Pos"] = df["Pos"].apply(get_position)
-
-    # raw scores
-    df["raw"] = df.apply(
-        lambda r:
-        fw_score(r) if r["Pos"] == "FW" else
-        mf_score(r) if r["Pos"] == "MF" else
-        df_score(r) if r["Pos"] == "DF" else
-        gk_score(r) if r["Pos"] == "GK" else
-        sub_score(r),
-        axis=1
-    )
-
-    # ----------------------------
-    # IMPORTANT FIX: CONTEXT SCALING
-    # ----------------------------
-    df["pct"] = percentile(df["raw"])
-
-    # curved scaling (prevents automatic 10s)
-    df["Rating"] = 4.5 + (df["pct"] ** 1.6) * 4.8
-
-    # final constraints
-    df["Rating"] = df["Rating"].clip(0, 9.5)
-    df["Rating"] = df["Rating"].round(1)
-
-    return df
-
-
-# ----------------------------
-# RUN
-# ----------------------------
+# ---------- MAIN ----------
 def main():
+    df = load_data()
 
-    df = pd.read_csv("data/mexico_vs_southafrica.csv")
+    df["Rating"] = df.apply(rate_player, axis=1)
 
-    df = rate_players(df)
+    # safety clamp
+    df["Rating"] = df["Rating"].clip(0, 10).round(1)
 
-    print(df[["player", "Pos", "Rating"]])
+    # ---------- FIXED OUTPUT PATH (IMPORTANT) ----------
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    df.to_csv("output_ratings.csv", index=False)
+    output_dir = os.path.join(base_dir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, "rated_players.csv")
+
+    df.to_csv(output_path, index=False)
+
+    print("Ratings complete!")
+    print("Saved file to:", output_path)
+    print("Output folder contains:", os.listdir(output_dir))
 
 
 if __name__ == "__main__":
