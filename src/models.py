@@ -90,7 +90,7 @@ def sub_rating(row):
     rating += 0.9 * get(row, "G")
     rating += 0.5 * get(row, "A")
     rating += 0.5 * normalized(row, "SOnT")
-    rating += 0.2 * normalized(row, "SOffT)
+    rating += 0.2 * normalized(row, "SOffT")
     rating += 0.3 * normalized(row, "Tk")
     rating += 0.3 * normalized(row, "INT")
     rating += 0.2 * normalized(row, "P")
