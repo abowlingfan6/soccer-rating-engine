@@ -11,8 +11,7 @@ from src.models import (
 
 
 NORMALIZE_COLS = [
-    "P", "C", "Tk", "INT", "FW", "FC", "PW", "SOnT", "BS"
-]
+    "P"]
 
 
 def rate_player(row):
