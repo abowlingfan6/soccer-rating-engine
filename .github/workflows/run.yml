@@ -20,11 +20,8 @@ jobs:
     - name: Run model
       run: python -m src.main
 
-    # ----------------------------
-    # 🔥 THIS IS THE IMPORTANT FIX
-    # ----------------------------
-    - name: Upload Output CSV
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: player-ratings
+        name: ratings
         path: output/rated_players.csv
