@@ -81,10 +81,10 @@ def forward_rating(row):
     rating -= 0.1 * get(row, "O")
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
-    rating -= 0.15 * get(row, "GC")
+    rating -= 0.1 * get(row, "GC")
 
     if get(row, "G") == 0 and get(row, "SOnT") == 0:
-        rating -= 0.2
+        rating -= 0.1
 
     return clamp(rating)
 
