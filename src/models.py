@@ -29,7 +29,7 @@ def defender_rating(row):
     rating += 1.5 * get(row, "G")
     rating += 0.2 * get(row, "SOnT")
 
-    rating -= 0.3 * normalized(row, "FC")
+    rating -= 0.2 * get(row, "FC")
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
     rating -= 0.2 * get(row, "O")
@@ -54,14 +54,14 @@ def midfielder_rating(row):
     rating += 0.3 * get(row, "BS")
     rating += 0.3 * get(row, "PW")
 
-    rating -= 0.3 * normalized(row, "FC")
+    rating -= 0.15 * get(row, "FC")
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
     rating -= 0.2 * get(row, "O")
     rating -= 0.2 * get(row, "GC")
 
     if get(row, "G") == 0 and get(row, "A") == 0:
-        rating -= 0.2
+        rating -= 0.1
 
     return clamp(rating)
 
@@ -77,14 +77,14 @@ def forward_rating(row):
     rating += 0.3 * normalized(row, "FW")
     rating += 0.2 * normalized(row, "P")
 
-    rating -= 0.3 * normalized(row, "FC")
-    rating -= 0.3 * get(row, "O")
+    rating -= 0.1 * get(row, "FC")
+    rating -= 0.1 * get(row, "O")
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
     rating -= 0.15 * get(row, "GC")
 
     if get(row, "G") == 0 and get(row, "SOnT") == 0:
-        rating -= 0.3
+        rating -= 0.2
 
     return clamp(rating)
 
