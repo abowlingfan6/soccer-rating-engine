@@ -1,92 +1,106 @@
-import pandas as pd
-import os
-import glob
-
-from src.models import (
-    defender_rating,
-    midfielder_rating,
-    forward_rating,
-    sub_rating
-)
+import numpy as np
 
 
-NORMALIZE_COLS = [
-    "P", "C", "Tk", "INT", "FW", "FC", "PW", "SOnT", "BS"
-]
+def get(row, col):
+    val = row[col] if col in row else 0
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 0.0
+    return float(val)
 
 
-def rate_player(row):
-    pos = str(row.get("Pos", row.get("Pos.", ""))).strip().upper()
-
-    if pos == "DF":
-        return defender_rating(row)
-    elif pos == "MF":
-        return midfielder_rating(row)
-    elif pos == "FW":
-        return forward_rating(row)
-    elif pos == "SUB":
-        return sub_rating(row)
-    elif pos == "GK":
-        return 6.0
-    else:
-        return midfielder_rating(row)
+def clamp(x, low=0, high=10):
+    return max(low, min(high, x))
 
 
-def add_match_normalization(df):
-    for col in NORMALIZE_COLS:
-        if col not in df.columns:
-            df[col] = 0
-
-        max_value = df[col].max()
-
-        if max_value == 0:
-            df[f"{col}_norm"] = 0
-        else:
-            df[f"{col}_norm"] = df[col] / max_value
-
-    return df
+def normalized(row, col):
+    return get(row, f"{col}_norm")
 
 
-def main():
-    csv_files = glob.glob("data/*.csv")
+def defender_rating(row):
+    rating = 6.0
 
-    if not csv_files:
-        raise FileNotFoundError("No CSV files found in the data folder.")
+    rating += 0.8 * normalized(row, "Tk")
+    rating += 0.8 * normalized(row, "INT")
+    rating += 0.4 * normalized(row, "P")
+    rating += 0.3 * normalized(row, "C")
+    rating += 0.3 * normalized(row, "FW")
+    rating += 0.3 * normalized(row, "PW")
+    rating += 0.4 * get(row, "A")
+    rating += 0.2 * get(row, "SOnT")
 
-    newest_file = max(csv_files, key=os.path.getctime)
+    rating -= 0.3 * normalized(row, "FC")
+    rating -= 0.3 * get(row, "YC")
+    rating -= 1.0 * get(row, "RC")
+    rating -= 0.3 * get(row, "O")
 
-    print(f"Reading file: {newest_file}")
-
-    df = pd.read_csv(newest_file)
-
-    df.columns = df.columns.str.strip()
-
-    if "Pos." in df.columns:
-        df = df.rename(columns={"Pos.": "Pos"})
-
-    for col in df.columns:
-        if col not in ["player", "Pos"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
-    df = add_match_normalization(df)
-
-    df["Rating"] = df.apply(rate_player, axis=1)
-
-    df["Rating"] = df["Rating"].clip(0, 10).round(1)
-
-    df = df.sort_values("Rating", ascending=False)
-
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    match_name = os.path.splitext(os.path.basename(newest_file))[0]
-    output_file = os.path.join(output_dir, f"{match_name}_ratings.csv")
-
-    df.to_csv(output_file, index=False)
-
-    print(f"Saved ratings to: {output_file}")
-    print(df[["player", "Pos", "Rating"]].to_string(index=False))
+    return clamp(rating)
 
 
-if __name__ == "__main__":
-    main()
+def midfielder_rating(row):
+    rating = 6.0
+
+    rating += 0.7 * normalized(row, "P")
+    rating += 0.7 * normalized(row, "C")
+    rating += 0.5 * normalized(row, "Tk")
+    rating += 0.5 * normalized(row, "INT")
+    rating += 0.4 * normalized(row, "FW")
+
+    rating += 0.8 * get(row, "A")
+    rating += 0.4 * get(row, "SOnT")
+    rating += 0.3 * get(row, "BS")
+
+    rating -= 0.3 * normalized(row, "FC")
+    rating -= 0.3 * get(row, "YC")
+    rating -= 1.0 * get(row, "RC")
+    rating -= 0.2 * get(row, "O")
+
+    if get(row, "G") == 0 and get(row, "A") == 0:
+        rating -= 0.4
+
+    return clamp(rating)
+
+
+def forward_rating(row):
+    rating = 6.0
+
+    rating += 1.2 * get(row, "G")
+    rating += 0.7 * get(row, "A")
+    rating += 0.7 * normalized(row, "SOnT")
+    rating += 0.4 * normalized(row, "BS")
+    rating += 0.3 * normalized(row, "FW")
+    rating += 0.2 * normalized(row, "P")
+
+    rating -= 0.3 * normalized(row, "FC")
+    rating -= 0.3 * get(row, "O")
+    rating -= 0.3 * get(row, "YC")
+    rating -= 1.0 * get(row, "RC")
+
+    if get(row, "G") == 0 and get(row, "SOnT") == 0:
+        rating -= 0.6
+
+    return clamp(rating)
+
+
+def sub_rating(row):
+    rating = 5.8
+
+    rating += 0.9 * get(row, "G")
+    rating += 0.5 * get(row, "A")
+    rating += 0.5 * normalized(row, "SOnT")
+    rating += 0.3 * normalized(row, "Tk")
+    rating += 0.3 * normalized(row, "INT")
+    rating += 0.2 * normalized(row, "P")
+
+    rating -= 0.2 * get(row, "YC")
+    rating -= 0.8 * get(row, "RC")
+
+    minutes = get(row, "MP")
+
+    if minutes < 15:
+        rating = min(rating, 8.2)
+    elif minutes < 30:
+        rating = min(rating, 8.5)
+    elif minutes < 45:
+        rating = min(rating, 8.8)
+
+    return clamp(rating)
