@@ -1,131 +1,131 @@
 import numpy as np
 
-# =========================
-# SAFE GET + HELPERS
-# =========================
-
+# -----------------------------
+# SAFE GET
+# -----------------------------
 def get(row, col):
     val = row[col] if col in row else 0
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return 0
-    return float(val)
+    return val
 
 
-def clamp(x):
-    return max(0, min(10, x))
-
-
-def scale_minutes(row):
+# -----------------------------
+# PER 90 NORMALIZER
+# -----------------------------
+def per90(row, value):
     mp = max(get(row, "MP"), 1)
-    return min(1.3, 90 / mp)
+    return value * (90 / mp)
 
 
-def log_stat(x):
-    return np.log1p(max(x, 0))
+# -----------------------------
+# BASE OUTFIELD MODEL
+# -----------------------------
+def base_outfield_rating(row):
+    r = 6
+
+    # attacking (scaled per 90 lightly)
+    r += per90(row, 1.0 * get(row, "G"))
+    r += per90(row, 0.5 * get(row, "A"))
+    r += per90(row, 0.25 * get(row, "SOnT"))
+
+    # passing contribution (heavily damped)
+    r += 0.02 * get(row, "P")
+    r += 0.03 * get(row, "C")
+
+    # defensive actions (small but stable)
+    r += per90(row, 0.05 * get(row, "Tk"))
+    r += per90(row, 0.05 * get(row, "INT"))
+
+    # duels / activity
+    r += per90(row, 0.08 * get(row, "FW"))
+    r += per90(row, 0.08 * get(row, "PW"))
+
+    # negatives
+    r -= per90(row, 0.08 * get(row, "FC"))
+    r -= per90(row, 0.10 * get(row, "YC"))
+    r -= per90(row, 0.60 * get(row, "RC"))
+    r -= per90(row, 0.20 * get(row, "O"))
+
+    return r
 
 
-# =========================
-# MIDFIELDER MODEL
-# =========================
-
-def midfielder_rating(row):
-    s = scale_minutes(row)
-
-    rating = 6.0
-
-    # ball control (diminishing returns)
-    rating += 0.35 * log_stat(get(row, "P"))
-    rating += 0.25 * log_stat(get(row, "C"))
-
-    # creation output
-    rating += 0.6 * get(row, "A")
-    rating += 0.25 * get(row, "SOnT")
-
-    # defensive work
-    rating += 0.2 * get(row, "Tk")
-    rating += 0.2 * get(row, "INT")
-
-    # contribution
-    rating += 0.1 * get(row, "FW")
-
-    # mistakes
-    rating -= 0.2 * get(row, "FC")
-    rating -= 0.2 * get(row, "O")
-
-    return clamp(rating * s)
-
-
-# =========================
-# DEFENDER MODEL
-# =========================
-
+# -----------------------------
+# DEFENDERS
+# -----------------------------
 def defender_rating(row):
-    s = scale_minutes(row)
+    r = base_outfield_rating(row)
 
-    rating = 6.0
+    # defensive bias
+    r += per90(row, 0.15 * get(row, "Tk"))
+    r += per90(row, 0.15 * get(row, "INT"))
 
-    rating += 0.3 * get(row, "Tk")
-    rating += 0.3 * get(row, "INT")
-    rating += 0.2 * get(row, "PW")
+    # reduce attacker-style inflation
+    r -= per90(row, 0.20 * get(row, "SOnT"))
 
-    rating += 0.15 * log_stat(get(row, "P"))
-
-    rating += 0.1 * get(row, "SOnT")
-
-    rating -= 0.2 * get(row, "FC")
-    rating -= 0.25 * get(row, "YC")
-    rating -= 0.7 * get(row, "RC")
-
-    return clamp(rating * s)
+    return r
 
 
-# =========================
-# FORWARD MODEL
-# =========================
+# -----------------------------
+# MIDFIELDERS (FIXED INFLATION)
+# -----------------------------
+def midfielder_rating(row):
+    r = base_outfield_rating(row)
 
+    # 🔥 KEY FIX: passing volume no longer over-inflates rating
+    pass_involvement = get(row, "P") + get(row, "C")
+    r += 0.005 * pass_involvement  # very small scaling
+
+    # creativity must be output-based, not volume-based
+    r += per90(row, 0.25 * get(row, "A"))
+    r += per90(row, 0.20 * get(row, "SOnT"))
+
+    # anti-9.7 control: prevents passive high-pass midfielders
+    if get(row, "G") == 0 and get(row, "A") == 0:
+        r -= 0.6
+
+    # possession-only inflation clamp
+    if pass_involvement > 60 and get(row, "A") == 0 and get(row, "G") == 0:
+        r -= 0.4
+
+    return r
+
+
+# -----------------------------
+# FORWARDS
+# -----------------------------
 def forward_rating(row):
-    s = scale_minutes(row)
+    r = base_outfield_rating(row)
 
-    rating = 6.0
-
-    rating += 0.9 * get(row, "G")
-    rating += 0.4 * get(row, "A")
-    rating += 0.3 * get(row, "SOnT")
-
-    rating += 0.2 * log_stat(get(row, "BS"))
-    rating += 0.15 * log_stat(get(row, "P"))
-
-    rating -= 0.2 * get(row, "O")
-    rating -= 0.3 * get(row, "FC")
-
-    # must show threat
+    # must show goal threat
     if get(row, "G") == 0 and get(row, "SOnT") < 2:
-        rating -= 0.6
+        r -= 0.7
 
-    return clamp(rating * s)
+    r += per90(row, 0.20 * get(row, "SOnT"))
+
+    return r
 
 
-# =========================
-# SUB MODEL (FIXED - NO MORE INFLATION)
-# =========================
-
+# -----------------------------
+# SUBS (FIXED OVERPOWERING ISSUE)
+# -----------------------------
 def sub_rating(row):
-    s = min(1.2, scale_minutes(row))  # HARD CAP
+    mp = max(get(row, "MP"), 1)
+    scale = min(1.6, 90 / mp)  # HARD CAP prevents 20–30 min chaos
 
-    rating = 5.8
+    r = 6
 
-    rating += 0.8 * get(row, "G")
-    rating += 0.4 * get(row, "A")
-    rating += 0.25 * get(row, "SOnT")
+    r += 1.0 * get(row, "G") * scale
+    r += 0.5 * get(row, "A") * scale
+    r += 0.2 * get(row, "SOnT") * scale
 
-    rating += 0.1 * get(row, "Tk")
-    rating += 0.1 * get(row, "INT")
+    r += 0.05 * get(row, "Tk") * scale
+    r += 0.05 * get(row, "INT") * scale
 
-    rating += 0.05 * log_stat(get(row, "P"))
+    r -= 0.10 * get(row, "YC")
+    r -= 0.50 * get(row, "RC")
 
-    rating -= 0.2 * get(row, "YC")
-    rating -= 0.7 * get(row, "RC")
+    # clamp FINAL OUTPUT (critical fix)
+    r = max(0, min(10, r))
 
-    return clamp(rating * s)
-
-    return round(rating, 1)
+    return round(r, 1)
