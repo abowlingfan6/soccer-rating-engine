@@ -1,5 +1,5 @@
-import os
 import pandas as pd
+import pathlib
 
 from src.models import (
     defender_rating,
@@ -8,55 +8,55 @@ from src.models import (
     sub_rating
 )
 
+# ---------- CONFIG ----------
+INPUT_FILE = "data/mexico_vs_southafrica.csv"
+OUTPUT_FILE = "output/rated_players.csv"
 
-# ---------- POSITION ROUTER ----------
+
+# ---------- POSITION LOGIC ----------
 def rate_player(row):
-    pos = str(row.get("Pos", "")).strip()
+    # handle both Pos and Pos.
+    pos = str(row.get("Pos", row.get("Pos.", ""))).strip().upper()
 
     if pos == "DF":
         return defender_rating(row)
+
     elif pos == "MF":
         return midfielder_rating(row)
+
     elif pos == "FW":
         return forward_rating(row)
-    elif pos == "Sub":
+
+    elif pos == "SUB":
         return sub_rating(row)
+
     else:
-        return 0
-
-
-# ---------- LOAD DATA ----------
-def load_data():
-    file_path = "data/mexico_vs_southafrica.csv"
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Missing dataset: {file_path}")
-
-    return pd.read_csv(file_path)
+        # fallback (prevents crashes on weird labels)
+        return midfielder_rating(row)
 
 
 # ---------- MAIN ----------
 def main():
-    df = load_data()
+    # load dataset
+    df = pd.read_csv(INPUT_FILE)
 
+    # clean column names (fix hidden spacing issues)
+    df.columns = df.columns.str.strip()
+
+    # compute ratings
     df["Rating"] = df.apply(rate_player, axis=1)
 
-    # safety clamp
+    # clamp formatting (1 decimal, max 10)
     df["Rating"] = df["Rating"].clip(0, 10).round(1)
 
-    # ---------- FIXED OUTPUT PATH (IMPORTANT) ----------
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # ensure output folder exists (CI-safe)
+    pathlib.Path("output").mkdir(parents=True, exist_ok=True)
 
-    output_dir = os.path.join(base_dir, "output")
-    os.makedirs(output_dir, exist_ok=True)
+    # save output
+    df.to_csv(OUTPUT_FILE, index=False)
 
-    output_path = os.path.join(output_dir, "rated_players.csv")
-
-    df.to_csv(output_path, index=False)
-
-    print("Ratings complete!")
-    print("Saved file to:", output_path)
-    print("Output folder contains:", os.listdir(output_dir))
+    print("\n✅ Ratings complete")
+    print(df[["player", "Pos", "Rating"]].head())
 
 
 if __name__ == "__main__":
