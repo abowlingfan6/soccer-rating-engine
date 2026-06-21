@@ -1,27 +1,36 @@
-name: Run Ratings
+name: Run Soccer Ratings
 
-on: [push]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.10"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-    - name: Install dependencies
-      run: pip install pandas numpy
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
 
-    - name: Run model
-      run: python -m src.main
+      - name: Run rating engine
+        run: |
+          python -m src.main
 
-    - name: Upload ratings
-      uses: actions/upload-artifact@v4
-      with:
-         name: ratings
-         path: output/
+      - name: Show generated files
+        run: |
+          ls -R output
+
+      - name: Upload ratings
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratings-output
+          path: output/
