@@ -1,5 +1,6 @@
 import pandas as pd
-import pathlib
+import os
+import glob
 
 from src.models import (
     defender_rating,
@@ -8,15 +9,9 @@ from src.models import (
     sub_rating
 )
 
-# ---------- CONFIG ----------
-INPUT_FILE = "data/mexico_vs_southafrica.csv"
-OUTPUT_FILE = "output/rated_players.csv"
 
-
-# ---------- POSITION LOGIC ----------
 def rate_player(row):
-    # handle both Pos and Pos.
-    pos = str(row.get("Pos", row.get("Pos.", ""))).strip().upper()
+    pos = str(row["Pos"]).strip().upper()
 
     if pos == "DF":
         return defender_rating(row)
@@ -27,36 +22,70 @@ def rate_player(row):
     elif pos == "FW":
         return forward_rating(row)
 
-    elif pos == "SUB":
+    elif pos == "GK":
+        return 6.0  # Placeholder until you create a GK formula
+
+    else:  # SUB or anything else
         return sub_rating(row)
 
-    else:
-        # fallback (prevents crashes on weird labels)
-        return midfielder_rating(row)
 
-
-# ---------- MAIN ----------
 def main():
-    # load dataset
-    df = pd.read_csv(INPUT_FILE)
 
-    # clean column names (fix hidden spacing issues)
+    # Find all CSV files in data folder
+    csv_files = glob.glob("data/*.csv")
+
+    if not csv_files:
+        raise FileNotFoundError(
+            "No CSV files found in the data folder."
+        )
+
+    # Use most recently uploaded CSV
+    newest_file = max(csv_files, key=os.path.getctime)
+
+    print(f"Reading file: {newest_file}")
+
+    df = pd.read_csv(newest_file)
+
+    # Remove accidental spaces from column names
     df.columns = df.columns.str.strip()
 
-    # compute ratings
+    # Verify required column exists
+    if "Pos" not in df.columns:
+        raise ValueError(
+            f"Missing 'Pos' column. Found columns: {list(df.columns)}"
+        )
+
+    # Calculate ratings
     df["Rating"] = df.apply(rate_player, axis=1)
 
-    # clamp formatting (1 decimal, max 10)
-    df["Rating"] = df["Rating"].clip(0, 10).round(1)
+    # Clean ratings
+    df["Rating"] = df["Rating"].clip(0, 10)
+    df["Rating"] = df["Rating"].round(1)
 
-    # ensure output folder exists (CI-safe)
-    pathlib.Path("output").mkdir(parents=True, exist_ok=True)
+    # Sort highest first
+    df = df.sort_values(
+        by="Rating",
+        ascending=False
+    )
 
-    # save output
-    df.to_csv(OUTPUT_FILE, index=False)
+    # Create output folder if needed
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
 
-    print("\n✅ Ratings complete")
-    print(df[["player", "Pos", "Rating"]].head())
+    # Create output filename from match filename
+    match_name = os.path.splitext(
+        os.path.basename(newest_file)
+    )[0]
+
+    output_file = os.path.join(
+        output_dir,
+        f"{match_name}_ratings.csv"
+    )
+
+    # Save file
+    df.to_csv(output_file, index=False)
+
+    print(f"Saved ratings to: {output_file}")
 
 
 if __name__ == "__main__":
