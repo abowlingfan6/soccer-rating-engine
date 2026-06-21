@@ -68,7 +68,7 @@ def forward_rating(row):
     rating += 1.2 * get(row, "G")
     rating += 0.7 * get(row, "A")
     rating += 0.7 * normalized(row, "SOnT")
-    rating += 0.3 * noramlized(row, "SOffT")
+    rating += 0.3 * normalized(row, "SOffT")
     rating += 0.4 * normalized(row, "BS")
     rating += 0.3 * normalized(row, "FW")
     rating += 0.2 * normalized(row, "P")
