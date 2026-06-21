@@ -32,6 +32,7 @@ def defender_rating(row):
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
     rating -= 0.2 * get(row, "O")
+    rating -= 0.3 * get(row, "GC")
 
     return clamp(rating)
 
@@ -55,6 +56,7 @@ def midfielder_rating(row):
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
     rating -= 0.2 * get(row, "O")
+    rating -= 0.2 * get(row, "GC")
 
     if get(row, "G") == 0 and get(row, "A") == 0:
         rating -= 0.2
@@ -77,6 +79,7 @@ def forward_rating(row):
     rating -= 0.3 * get(row, "O")
     rating -= 0.3 * get(row, "YC")
     rating -= 1.0 * get(row, "RC")
+    rating -= 0.15 * get(row, "GC")
 
     if get(row, "G") == 0 and get(row, "SOnT") == 0:
         rating -= 0.3
@@ -97,6 +100,7 @@ def sub_rating(row):
 
     rating -= 0.2 * get(row, "YC")
     rating -= 0.8 * get(row, "RC")
+    rating -= 0.1 * get(row, "GC")
 
     minutes = get(row, "MP")
 
