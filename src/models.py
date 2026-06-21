@@ -1,131 +1,92 @@
-import numpy as np
+import pandas as pd
+import os
+import glob
 
-# -----------------------------
-# SAFE GET
-# -----------------------------
-def get(row, col):
-    val = row[col] if col in row else 0
-    if val is None or (isinstance(val, float) and np.isnan(val)):
-        return 0
-    return val
-
-
-# -----------------------------
-# PER 90 NORMALIZER
-# -----------------------------
-def per90(row, value):
-    mp = max(get(row, "MP"), 1)
-    return value * (90 / mp)
+from src.models import (
+    defender_rating,
+    midfielder_rating,
+    forward_rating,
+    sub_rating
+)
 
 
-# -----------------------------
-# BASE OUTFIELD MODEL
-# -----------------------------
-def base_outfield_rating(row):
-    r = 6
-
-    # attacking (scaled per 90 lightly)
-    r += per90(row, 1.0 * get(row, "G"))
-    r += per90(row, 0.5 * get(row, "A"))
-    r += per90(row, 0.25 * get(row, "SOnT"))
-
-    # passing contribution (heavily damped)
-    r += 0.02 * get(row, "P")
-    r += 0.03 * get(row, "C")
-
-    # defensive actions (small but stable)
-    r += per90(row, 0.05 * get(row, "Tk"))
-    r += per90(row, 0.05 * get(row, "INT"))
-
-    # duels / activity
-    r += per90(row, 0.08 * get(row, "FW"))
-    r += per90(row, 0.08 * get(row, "PW"))
-
-    # negatives
-    r -= per90(row, 0.08 * get(row, "FC"))
-    r -= per90(row, 0.10 * get(row, "YC"))
-    r -= per90(row, 0.60 * get(row, "RC"))
-    r -= per90(row, 0.20 * get(row, "O"))
-
-    return r
+NORMALIZE_COLS = [
+    "P", "C", "Tk", "INT", "FW", "FC", "PW", "SOnT", "BS"
+]
 
 
-# -----------------------------
-# DEFENDERS
-# -----------------------------
-def defender_rating(row):
-    r = base_outfield_rating(row)
+def rate_player(row):
+    pos = str(row.get("Pos", row.get("Pos.", ""))).strip().upper()
 
-    # defensive bias
-    r += per90(row, 0.15 * get(row, "Tk"))
-    r += per90(row, 0.15 * get(row, "INT"))
-
-    # reduce attacker-style inflation
-    r -= per90(row, 0.20 * get(row, "SOnT"))
-
-    return r
-
-
-# -----------------------------
-# MIDFIELDERS (FIXED INFLATION)
-# -----------------------------
-def midfielder_rating(row):
-    r = base_outfield_rating(row)
-
-    # 🔥 KEY FIX: passing volume no longer over-inflates rating
-    pass_involvement = get(row, "P") + get(row, "C")
-    r += 0.005 * pass_involvement  # very small scaling
-
-    # creativity must be output-based, not volume-based
-    r += per90(row, 0.25 * get(row, "A"))
-    r += per90(row, 0.20 * get(row, "SOnT"))
-
-    # anti-9.7 control: prevents passive high-pass midfielders
-    if get(row, "G") == 0 and get(row, "A") == 0:
-        r -= 0.6
-
-    # possession-only inflation clamp
-    if pass_involvement > 60 and get(row, "A") == 0 and get(row, "G") == 0:
-        r -= 0.4
-
-    return r
+    if pos == "DF":
+        return defender_rating(row)
+    elif pos == "MF":
+        return midfielder_rating(row)
+    elif pos == "FW":
+        return forward_rating(row)
+    elif pos == "SUB":
+        return sub_rating(row)
+    elif pos == "GK":
+        return 6.0
+    else:
+        return midfielder_rating(row)
 
 
-# -----------------------------
-# FORWARDS
-# -----------------------------
-def forward_rating(row):
-    r = base_outfield_rating(row)
+def add_match_normalization(df):
+    for col in NORMALIZE_COLS:
+        if col not in df.columns:
+            df[col] = 0
 
-    # must show goal threat
-    if get(row, "G") == 0 and get(row, "SOnT") < 2:
-        r -= 0.7
+        max_value = df[col].max()
 
-    r += per90(row, 0.20 * get(row, "SOnT"))
+        if max_value == 0:
+            df[f"{col}_norm"] = 0
+        else:
+            df[f"{col}_norm"] = df[col] / max_value
 
-    return r
+    return df
 
 
-# -----------------------------
-# SUBS (FIXED OVERPOWERING ISSUE)
-# -----------------------------
-def sub_rating(row):
-    mp = max(get(row, "MP"), 1)
-    scale = min(1.6, 90 / mp)  # HARD CAP prevents 20–30 min chaos
+def main():
+    csv_files = glob.glob("data/*.csv")
 
-    r = 6
+    if not csv_files:
+        raise FileNotFoundError("No CSV files found in the data folder.")
 
-    r += 1.0 * get(row, "G") * scale
-    r += 0.5 * get(row, "A") * scale
-    r += 0.2 * get(row, "SOnT") * scale
+    newest_file = max(csv_files, key=os.path.getctime)
 
-    r += 0.05 * get(row, "Tk") * scale
-    r += 0.05 * get(row, "INT") * scale
+    print(f"Reading file: {newest_file}")
 
-    r -= 0.10 * get(row, "YC")
-    r -= 0.50 * get(row, "RC")
+    df = pd.read_csv(newest_file)
 
-    # clamp FINAL OUTPUT (critical fix)
-    r = max(0, min(10, r))
+    df.columns = df.columns.str.strip()
 
-    return round(r, 1)
+    if "Pos." in df.columns:
+        df = df.rename(columns={"Pos.": "Pos"})
+
+    for col in df.columns:
+        if col not in ["player", "Pos"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    df = add_match_normalization(df)
+
+    df["Rating"] = df.apply(rate_player, axis=1)
+
+    df["Rating"] = df["Rating"].clip(0, 10).round(1)
+
+    df = df.sort_values("Rating", ascending=False)
+
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
+
+    match_name = os.path.splitext(os.path.basename(newest_file))[0]
+    output_file = os.path.join(output_dir, f"{match_name}_ratings.csv")
+
+    df.to_csv(output_file, index=False)
+
+    print(f"Saved ratings to: {output_file}")
+    print(df[["player", "Pos", "Rating"]].to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
