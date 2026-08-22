@@ -1,1 +1,0 @@
-Scotland tournament match data
