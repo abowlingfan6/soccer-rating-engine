@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 import pandas as pd
 
-from src.models import (
+from models import (
     defender_rating,
     midfielder_rating,
     forward_rating,
