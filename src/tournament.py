@@ -187,6 +187,8 @@ def build_tournament_table(all_ratings, team):
     """
     Combine all match ratings into a tournament
     leaderboard for one team.
+
+    Tournament Rating is weighted by minutes played.
     """
 
     rows = []
@@ -199,15 +201,59 @@ def build_tournament_table(all_ratings, team):
         best_idx = group["Rating"].idxmax()
         worst_idx = group["Rating"].idxmin()
 
+        # Simple average of game ratings
         average_rating = group["Rating"].mean()
+
+        # -----------------------------------------
+        # MINUTES PLAYED
+        # -----------------------------------------
+
+        if "MP" in group.columns:
+            minutes = pd.to_numeric(
+                group["MP"],
+                errors="coerce"
+            ).fillna(0)
+        else:
+            minutes = pd.Series(
+                [0] * len(group),
+                index=group.index
+            )
+
+        total_minutes = minutes.sum()
+
+        # -----------------------------------------
+        # MINUTES-WEIGHTED TOURNAMENT RATING
+        # -----------------------------------------
+
+        if total_minutes > 0:
+
+            weighted_rating = (
+                group["Rating"] * minutes
+            ).sum() / total_minutes
+
+        else:
+            # Fallback in case a file has no
+            # usable minutes data.
+            weighted_rating = average_rating
 
         rows.append(
             {
                 "Player": player,
-                "Team": team.replace("_", " "),
-                "Position": primary_position(group),
+
+                "Team": team.replace(
+                    "_",
+                    " "
+                ),
+
+                "Position": primary_position(
+                    group
+                ),
 
                 "Games": len(group),
+
+                "Minutes": int(
+                    total_minutes
+                ),
 
                 "Average Rating": round(
                     average_rating,
@@ -215,7 +261,10 @@ def build_tournament_table(all_ratings, team):
                 ),
 
                 "Best Rating": round(
-                    group.loc[best_idx, "Rating"],
+                    group.loc[
+                        best_idx,
+                        "Rating"
+                    ],
                     1
                 ),
 
@@ -225,7 +274,10 @@ def build_tournament_table(all_ratings, team):
                 ],
 
                 "Worst Rating": round(
-                    group.loc[worst_idx, "Rating"],
+                    group.loc[
+                        worst_idx,
+                        "Rating"
+                    ],
                     1
                 ),
 
@@ -234,22 +286,23 @@ def build_tournament_table(all_ratings, team):
                     "Match"
                 ],
 
-                # VERSION 1:
-                # Tournament Rating is the player's
-                # average match rating.
                 "Tournament Rating": round(
-                    average_rating,
+                    weighted_rating,
                     2
                 ),
             }
         )
 
-    tournament = pd.DataFrame(rows)
+    tournament = pd.DataFrame(
+        rows
+    )
 
+    # Rank primarily by the minutes-weighted
+    # Tournament Rating.
     tournament = tournament.sort_values(
         [
             "Tournament Rating",
-            "Games"
+            "Minutes"
         ],
         ascending=[
             False,
@@ -261,11 +314,13 @@ def build_tournament_table(all_ratings, team):
         drop=True
     )
 
-    # Add leaderboard rank.
     tournament.insert(
         0,
         "Rank",
-        range(1, len(tournament) + 1)
+        range(
+            1,
+            len(tournament) + 1
+        )
     )
 
     return tournament
@@ -423,13 +478,14 @@ def main():
     print()
 
     display_columns = [
-        "Rank",
-        "Player",
-        "Position",
-        "Games",
-        "Average Rating",
-        "Tournament Rating",
-    ]
+    "Rank",
+    "Player",
+    "Position",
+    "Games",
+    "Minutes",
+    "Average Rating",
+    "Tournament Rating",
+]
 
     print(
         tournament[
