@@ -52,21 +52,24 @@ def rate_match(csv_file):
     if "Pos." in df.columns:
         df = df.rename(columns={"Pos.": "Pos"})
 
-    # Clean up column names
-    df.columns = df.columns.str.strip()
+# Clean up column names
+df.columns = df.columns.str.strip()
 
 # Match Alex's CSV headings
-    if "Player" in df.columns:
+if "Player" in df.columns:
     df = df.rename(columns={"Player": "player"})
 
-    if "Pos." in df.columns:
+if "Pos." in df.columns:
     df = df.rename(columns={"Pos.": "Pos"})
 
-    if missing:
-        raise ValueError(
-            f"{csv_file.name} is missing required column(s): "
-            f"{', '.join(sorted(missing))}"
-        )
+required = {"player", "Pos"}
+missing = required - set(df.columns)
+
+if missing:
+    raise ValueError(
+        f"{csv_file.name} is missing required column(s): "
+        f"{', '.join(sorted(missing))}"
+    )
 
     for col in df.columns:
         if col not in ["player", "Pos"]:
